@@ -1,4 +1,0 @@
-cupy
-matplotlib
-numpy
-scipy
