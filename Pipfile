@@ -9,6 +9,8 @@ matplotlib = "*"
 numpy = "*"
 scipy = "*"
 mpi4py = "*"
+pandas = "*"
+vsmodel = "*"
 
 [dev-packages]
 

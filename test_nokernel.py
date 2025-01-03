@@ -1,6 +1,5 @@
 import cupy as cp
 import numpy as np
-import vsmodel
 
 EARTH_DIPOLE_B0 = 30e3  # nT
 MAX_ITERS = 100
@@ -27,9 +26,6 @@ Bx = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
 By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
 Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
 
-# Calculate VS Electric field model
-Ex,Ey,Ez = vsmodel.ModelCart(x_grid, y_grid, 3)
-
 print('B{x,y,z} shape', Bx.shape)
 
 # Instantiate particle 
@@ -45,11 +41,10 @@ vpar = vpar_val * cp.ones(pos_x.shape)
 print('vpar shape', vpar.shape)
 
 # Loop particles
-
-def interp_field(field):
-    field_i = cp.searchsorted(x_axis, pos_x)
-    field_j = cp.searchsorted(y_axis, pos_y)
-    field_k = cp.searchsorted(z_axis, pos_z)
+def interp_field(field, dx=0, dy=0, dz=0):
+    field_i = cp.searchsorted(x_axis, pos_x + dx)
+    field_j = cp.searchsorted(y_axis, pos_y + dy)
+    field_k = cp.searchsorted(z_axis, pos_z + dz)
 
     result = cp.zeros(pos_x.shape)
     
@@ -68,6 +63,7 @@ def interp_field(field):
 
 
 hist_x = []
+hist_y = []
 hist_z = []
                 
 for i in range(MAX_ITERS):
@@ -81,9 +77,8 @@ for i in range(MAX_ITERS):
     pos_y += vpar * (By_cur / Btot_cur) * dt
     pos_z += vpar * (Bz_cur / Btot_cur) * dt
 
-    vpar = 
-    
     hist_x.append(pos_x.get())
+    hist_y.append(pos_y.get())
     hist_z.append(pos_z.get())
 
     print('.', end='')
@@ -91,12 +86,20 @@ for i in range(MAX_ITERS):
 print()
     
 hist_x = np.array(hist_x)
+hist_y = np.array(hist_y)
 hist_z = np.array(hist_z)
 
 print('hist_x shape', hist_x.shape)
 
 # Write output for visualization
+d = {}
+
+for i in range(0, pos_x.size, 50):
+    d[f'x{i}'] = hist_x[:, i]
+    d[f'y{i}'] = hist_y[:, i]
+    d[f'z{i}'] = hist_z[:, i]
+
 import pandas as pd
-pd.DataFrame(dict(x=hist_x[:, 150], z=hist_z[:, 150])).to_csv('out.csv')
+pd.DataFrame(d).to_csv('out.csv')
 
     
