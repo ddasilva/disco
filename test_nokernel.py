@@ -1,5 +1,6 @@
 import cupy as cp
 import numpy as np
+import vsmodel
 
 EARTH_DIPOLE_B0 = 30e3  # nT
 MAX_ITERS = 100
@@ -25,6 +26,9 @@ r_grid = cp.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
 Bx = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
 By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
 Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
+
+# Calculate VS Electric field model
+Ex,Ey,Ez = vsmodel.ModelCart(x_grid, y_grid, 3)
 
 print('B{x,y,z} shape', Bx.shape)
 
@@ -77,6 +81,8 @@ for i in range(MAX_ITERS):
     pos_y += vpar * (By_cur / Btot_cur) * dt
     pos_z += vpar * (Bz_cur / Btot_cur) * dt
 
+    vpar = 
+    
     hist_x.append(pos_x.get())
     hist_z.append(pos_z.get())
 
