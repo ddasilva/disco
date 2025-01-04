@@ -11,6 +11,7 @@ scipy = "*"
 mpi4py = "*"
 pandas = "*"
 vsmodel = "*"
+joblib = "*"
 
 [dev-packages]
 
