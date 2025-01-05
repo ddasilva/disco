@@ -1,8 +1,9 @@
 import cupy as cp
 import sys
 import time
-from line_profiler import profile
 import pandas as pd
+from cupyx import jit
+import math
 
 EARTH_DIPOLE_B0 = -30e3   # nT
 MAX_ITERS = 5000
@@ -11,11 +12,10 @@ EARTH_RADIUS = 6371.1e3   # m
 dt = .1                   # s
 vpar_start = .1           # earth radii / sec
 grid_spacing = 0.1
-grad_step = 1e-1
-mu = 1e-6
+grad_step = 1e-1          # finite diff delta
+mu = 1e-6                 # first invariant
 
 
-@profile
 def main():
     # Setup grid
     x_axis = cp.arange(-10, 10, grid_spacing)
@@ -85,7 +85,6 @@ def main():
     pd.DataFrame(d).to_csv('out.csv')
 
 
-@profile
 def sim(
         pos_x, pos_y, pos_z, vpar,
         hist_x, hist_y, hist_z,
@@ -130,33 +129,86 @@ def sim(
 
     print()
 
-    
-@profile
-def interp_field(field, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=0, dy=0, dz=0):
+
+def interp_field(
+        field,
+        pos_x, pos_y, pos_z,
+        x_axis, y_axis, z_axis,
+        dx=0, dy=0, dz=0
+):
     field_i = cp.searchsorted(x_axis, pos_x + dx)
     field_j = cp.searchsorted(y_axis, pos_y + dy)
     field_k = cp.searchsorted(z_axis, pos_z + dz)
 
     result = cp.zeros(pos_x.shape)
-    w_accum = cp.zeros(pos_x.shape)
     
-    for di in range(2):
-        for dj in range(2):
-            for dk in range(2):
-                # TODO this requires GPU memory lookups in the
-                # x_axis[field_i + di] etc terms, and is expensive-- how to do
-                # this better?
-                dist_x = x_axis[field_i + di] - (pos_x + dx)
-                dist_y = y_axis[field_j + dj] - (pos_y + dy)
-                dist_z = z_axis[field_k + dk] - (pos_z + dz)
-                                
-                w = 1 / cp.sqrt(dist_x**2 + dist_y**2 + dist_z**2)                
-                f = field[field_i + di, field_j + dj, field_k + dk]
+    arr_size = pos_x.size
+    block_size = 1024
+    grid_size = int(math.ceil(arr_size / block_size))
+    
+    interp_field_kernel[grid_size, block_size](
+        arr_size, result, field,
+        field_i, field_j, field_k,
+        pos_x + dx, pos_y + dy, pos_z + dz,
+        x_axis, y_axis, z_axis
+    )
 
-                result += w * f
-                w_accum += w
+    return result
     
-    return result / w_accum
+
+@jit.rawkernel()
+def interp_field_kernel(
+        arr_size, result, field,
+        field_i, field_j, field_k,
+        pos_x, pos_y, pos_z,
+        x_axis, y_axis, z_axis
+):
+    idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+    
+    if idx < arr_size:    
+        w_accum = 0.0
+    
+        for di in range(2):
+            for dj in range(2):
+                for dk in range(2):
+                    dist_x = x_axis[field_i[idx] + di] - pos_x[idx]
+                    dist_y = y_axis[field_j[idx] + dj] - pos_y[idx]
+                    dist_z = z_axis[field_k[idx] + dk] - pos_z[idx]
+                    
+                    w = 1 / cp.sqrt(dist_x**2 + dist_y**2 + dist_z**2)                
+                    f = field[field_i[idx] + di, field_j[idx] + dj, field_k[idx] + dk]
+                    
+                    result[idx] += w * f
+                    w_accum += w
+    
+        result[idx] /= w_accum
+    
+    
+# def interp_field_backup(field, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=0, dy=0, dz=0):
+#     field_i = cp.searchsorted(x_axis, pos_x + dx)
+#     field_j = cp.searchsorted(y_axis, pos_y + dy)
+#     field_k = cp.searchsorted(z_axis, pos_z + dz)
+
+#     result = cp.zeros(pos_x.shape)
+#     w_accum = cp.zeros(pos_x.shape)
+    
+#     for di in range(2):
+#         for dj in range(2):
+#             for dk in range(2):
+#                 # TODO this requires GPU memory lookups in the
+#                 # x_axis[field_i + di] etc terms, and is expensive-- how to do
+#                 # this better?
+#                 dist_x = x_axis[field_i + di] - (pos_x + dx)
+#                 dist_y = y_axis[field_j + dj] - (pos_y + dy)
+#                 dist_z = z_axis[field_k + dk] - (pos_z + dz)
+                                
+#                 w = 1 / cp.sqrt(dist_x**2 + dist_y**2 + dist_z**2)                
+#                 f = field[field_i + di, field_j + dj, field_k + dk]
+
+#                 result += w * f
+#                 w_accum += w
+    
+#     return result / w_accum
 
 
 
