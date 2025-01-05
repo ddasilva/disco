@@ -12,6 +12,7 @@ mpi4py = "*"
 pandas = "*"
 vsmodel = "*"
 joblib = "*"
+line-profiler = "*"
 
 [dev-packages]
 
