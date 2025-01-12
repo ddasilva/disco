@@ -7,6 +7,7 @@ import math
 from scipy.constants import elementary_charge, m_e
 from dataclasses import dataclass
 from typing import Any
+#import line_profiler
 
 EARTH_DIPOLE_B0 = -30e3   # nT
 MAX_ITERS = 5000
@@ -111,7 +112,8 @@ def main():
     
     pd.DataFrame(d).to_csv('out.csv')
 
-
+    
+#@line_profiler.profile
 def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
     for i in range(MAX_ITERS):
         # Record history of positions
@@ -201,6 +203,7 @@ def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
     print()
 
 
+#@line_profiler.profile
 def interp_field(field, pos, axes, neighbors=None, dx=0, dy=0, dz=0):
     """Interpolate a 3D gridded field at given positions.
 
@@ -213,7 +216,7 @@ def interp_field(field, pos, axes, neighbors=None, dx=0, dy=0, dz=0):
     Return
       result: cupy array of interpolated field values at position
       neighbors: neighbors object for reuse
-    """
+    """ 
     pos_x_pert = pos.x + dx
     pos_y_pert = pos.y + dy
     pos_z_pert = pos.z + dz
@@ -247,7 +250,7 @@ def interp_field_kernel(
         pos_x, pos_y, pos_z,
         x_axis, y_axis, z_axis
 ):
-    """Cupy Kernel to interpolate point amongst neighbors.
+    """[CUPY KERNEL] Interpolate field using neighbors.
     
     Uses inverse distance weighted average. This kernel operates
     on one position per thread.
