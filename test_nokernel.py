@@ -12,7 +12,7 @@ EARTH_RADIUS = 6371.1e3   # m
 dt = .1                   # s
 vpar_start = .1           # earth radii / sec
 grid_spacing = 0.1
-grad_step = 1e-1          # finite diff delta
+grad_step = 5e-2          # finite diff delta step (half)
 mu = 1e-6                 # first invariant
 
 
@@ -115,10 +115,17 @@ def sim(
         grad_step_z = grad_step * Bz_cur / Btot_cur    
 
         bhat_dot_gradB = (
-            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis,
-                         dx=grad_step_x, dy=grad_step_y, dz=grad_step_z)
-            - Btot_cur
-        ) / grad_step
+            interp_field(
+                Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis,
+                dx=grad_step_x, dy=grad_step_y, dz=grad_step_z
+            )
+            -
+            interp_field(
+                Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis,
+                dx=-grad_step_x, dy=-grad_step_y, dz=-grad_step_z
+            )
+            
+        ) / (2 * grad_step)
         
         # the constant against bhat dot gradB is fudged for now-- need to work
         # out specific value
