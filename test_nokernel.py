@@ -4,6 +4,7 @@ import time
 import pandas as pd
 from cupyx import jit
 import math
+from scipy.constants import elementary_charge, m_e
 
 EARTH_DIPOLE_B0 = -30e3   # nT
 MAX_ITERS = 5000
@@ -13,7 +14,7 @@ dt = .1                   # s
 vpar_start = .1           # earth radii / sec
 grid_spacing = 0.1
 grad_step = 5e-2          # finite diff delta step (half)
-mu = 1e-6                 # first invariant
+mu = 1e-36                # first invariant
 
 
 def main():
@@ -104,12 +105,55 @@ def sim(
         Bz_cur = interp_field(Bz, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis)
         Btot_cur = interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis)
     
-        # Step Position    
-        pos_x += vpar * (Bx_cur / Btot_cur) * dt
-        pos_y += vpar * (By_cur / Btot_cur) * dt
-        pos_z += vpar * (Bz_cur / Btot_cur) * dt
+        # Step Position
+        # -----------------------------------------
+        # gradB guiding center term
+        gradB_step = grad_step 
+        gradB_x = (
+            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=gradB_step)
+            - interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=-gradB_step)
+        ) / (2 * gradB_step)
+        gradB_y = (
+            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dy=gradB_step)
+            - interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dy=-gradB_step)
+        ) / (2 * gradB_step)
+        gradB_z = (
+            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dz=gradB_step)
+            - interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dz=-gradB_step)
+        ) / (2 * gradB_step)
+
+        q = -elementary_charge
+
+        cross_term1 = cp.zeros((Bx_cur.size, 3))
+        cross_term1[:, 0] = Bx_cur / Btot_cur
+        cross_term1[:, 1] = By_cur / Btot_cur
+        cross_term1[:, 2] = Bz_cur / Btot_cur
+      
+        cross_term2 = cp.zeros((Bx_cur.size, 3))
+        cross_term2[:, 0] = gradB_x
+        cross_term2[:, 1] = gradB_y
+        cross_term2[:, 2] = gradB_z 
+
+        v_perp = cp.sqrt(mu * Btot_cur  / m_e) 
+        scale_term = m_e * v_perp**2  / (2 * q * Btot_cur) 
+
+        # TODO need to work out the units
+        scale_term *= 1e12
+        
+        v_gradB = cp.zeros((Bx_cur.size, 3))
+        v_gradB[:, :] = cp.cross(cross_term1, cross_term2)
+
+        for i in range(3):
+            v_gradB[:, i] *= scale_term
+        
+        # do the step
+        pos_x += dt * (vpar * (Bx_cur / Btot_cur) + v_gradB[:, 0])
+        pos_y += dt * (vpar * (By_cur / Btot_cur) + v_gradB[:, 1])
+        pos_z += dt * (vpar * (Bz_cur / Btot_cur) + v_gradB[:, 2])
 
         # Step parallel velocity
+        # -----------------------------------
+        # bhat dot gradB
         grad_step_x = grad_step * Bx_cur / Btot_cur
         grad_step_y = grad_step * By_cur / Btot_cur
         grad_step_z = grad_step * Bz_cur / Btot_cur    
@@ -123,14 +167,12 @@ def sim(
             interp_field(
                 Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis,
                 dx=-grad_step_x, dy=-grad_step_y, dz=-grad_step_z
-            )
-            
+            )            
         ) / (2 * grad_step)
         
-        # the constant against bhat dot gradB is fudged for now-- need to work
-        # out specific value
-        vpar += - dt * mu * bhat_dot_gradB 
-    
+        # do the step
+        vpar += - dt * (mu / m_e) * bhat_dot_gradB 
+        
         print('.', end='')
         sys.stdout.flush()
 

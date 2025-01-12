@@ -13,6 +13,7 @@ pandas = "*"
 vsmodel = "*"
 joblib = "*"
 line-profiler = "*"
+astropy = "*"
 
 [dev-packages]
 
