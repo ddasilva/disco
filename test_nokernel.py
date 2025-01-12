@@ -5,10 +5,11 @@ import pandas as pd
 from cupyx import jit
 import math
 from scipy.constants import elementary_charge, m_e
+from dataclasses import dataclass
+from typing import Any
 
 EARTH_DIPOLE_B0 = -30e3   # nT
 MAX_ITERS = 5000
-EARTH_RADIUS = 6371.1e3   # m
 
 dt = .1                   # s
 vpar_start = .1           # earth radii / sec
@@ -17,18 +18,50 @@ grad_step = 5e-2          # finite diff delta step (half)
 mu = 1e-36                # first invariant
 
 
+@dataclass
+class Positions:
+    """1D arrays of cartesian particle position component"""
+    x: Any
+    y: Any
+    z: Any
+
+@dataclass
+class Axes:
+    """1D arrays of rectilinear grid axes"""
+    x: Any
+    y: Any
+    z: Any    
+
+@dataclass
+class PositionHistory:
+    """History of positions"""
+    x: Any
+    y: Any
+    z: Any
+
+
+@dataclass
+class Neighbors:
+    """Neighbors of given particles, used for interpolation"""
+    field_i: Any
+    field_j: Any
+    field_k: Any
+    
+    
 def main():
-    # Setup grid
+    """Main method of the program."""
+    # Setup axes and grid
     x_axis = cp.arange(-10, 10, grid_spacing)
     y_axis = cp.arange(-10, 10, grid_spacing)
     z_axis = cp.arange(-5, 5, grid_spacing)
+    axes = Axes(x_axis, y_axis, z_axis)
     
     x_grid, y_grid, z_grid = cp.meshgrid(
-        x_axis, y_axis, z_axis,
+        axes.x, axes.y, axes.z,
         indexing='ij'
     )
 
-    print('{x,y,z}_grid Shape', x_grid.shape)
+    print('Grid Shape:', x_grid.shape)
     
     # Calculate Dipole on Grid
     r_grid = cp.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
@@ -37,48 +70,41 @@ def main():
     By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
     Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
     Btot = cp.sqrt(Bx**2 + By**2 + Bz**2)
-    
-    print('B{x,y,z} shape', Bx.shape)
-    
+        
     # Instantiate particle positions and parallel velocity
     pos_x = cp.arange(3, 8, .01)
     pos_y = cp.zeros(pos_x.shape)
     pos_z = cp.zeros(pos_x.shape)
-    
-    print('pos{x,y,z} shape', pos_x.shape)
 
-    vpar = vpar_start * cp.ones(pos_x.shape)
-    
-    print('vpar shape', vpar.shape)
+    pos = Positions(pos_x, pos_y, pos_z)
+    print('Number of particles:', pos_x.size)
 
-    # history
-    hist_x = cp.zeros((MAX_ITERS, pos_x.size))
-    hist_y = cp.zeros((MAX_ITERS, pos_y.size))
-    hist_z = cp.zeros((MAX_ITERS, pos_z.size))
+    vpar = vpar_start * cp.ones(pos.x.shape)    
+
+    # History of positions
+    hist = PositionHistory(
+        x=cp.zeros((MAX_ITERS, pos.x.size)),
+        y=cp.zeros((MAX_ITERS, pos.y.size)),
+        z=cp.zeros((MAX_ITERS, pos.y.size))
+    )
+
+    print('Iterations:', MAX_ITERS)
     
     start_time = time.time()
-    sim(
-        pos_x, pos_y, pos_z, vpar,
-        hist_x, hist_y, hist_z,
-        Bx, By, Bz, Btot,
-        x_axis, y_axis, z_axis,
-        x_grid, y_grid, z_grid
-    )
+    sim(pos, vpar, hist, Bx, By, Bz, Btot, axes)
     end_time = time.time()
     
-    print('time = ', end_time - start_time, '( iters = ', MAX_ITERS, ')')
+    print('time = ', end_time - start_time, 's')
 
     # Collect history
-    hist_x = hist_x.get()
-    hist_y = hist_y.get()
-    hist_z = hist_z.get()
-    
-    print('hist_x shape', hist_x.shape)
+    hist_x = hist.x.get()
+    hist_y = hist.y.get()
+    hist_z = hist.z.get()
 
     # Write output for visualization
     d = {}
     
-    for i in range(0, pos_x.size, 50):
+    for i in range(0, pos.x.size, 50):
         d[f'x{i}'] = hist_x[:, i]
         d[f'y{i}'] = hist_y[:, i]
         d[f'z{i}'] = hist_z[:, i]        
@@ -86,48 +112,45 @@ def main():
     pd.DataFrame(d).to_csv('out.csv')
 
 
-def sim(
-        pos_x, pos_y, pos_z, vpar,
-        hist_x, hist_y, hist_z,
-        Bx, By, Bz, Btot,
-        x_axis, y_axis, z_axis,
-        x_grid, y_grid, z_grid
-):
+def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
     for i in range(MAX_ITERS):
-        # Record history
-        hist_x[i, :] = pos_x
-        hist_y[i, :] = pos_y
-        hist_z[i, :] = pos_z
+        # Record history of positions
+        hist.x[i, :] = pos.x
+        hist.y[i, :] = pos.y
+        hist.z[i, :] = pos.z
         
-        # Get B field
-        Bx_cur = interp_field(Bx, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis)
-        By_cur = interp_field(By, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis)
-        Bz_cur = interp_field(Bz, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis)
-        Btot_cur = interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis)
-    
+        # Get B and Bhat vectors at particle locations
+        Bx_cur, neighbors = interp_field(Bx, pos, axes)
+        By_cur, _ = interp_field(By, pos, axes, neighbors=neighbors)
+        Bz_cur, _ = interp_field(Bz, pos, axes, neighbors=neighbors)
+        Btot_cur, _ = interp_field(Btot, pos, axes, neighbors=neighbors)
+
+        Bx_hat_cur = Bx_cur / Btot_cur
+        By_hat_cur = By_cur / Btot_cur
+        Bz_hat_cur = Bz_cur / Btot_cur
+        
         # Step Position
         # -----------------------------------------
         # gradB guiding center term
-        gradB_step = grad_step 
         gradB_x = (
-            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=gradB_step)
-            - interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=-gradB_step)
-        ) / (2 * gradB_step)
+            interp_field(Btot, pos, axes, dx=grad_step)[0]
+            - interp_field(Btot, pos, axes, dx=-grad_step)[0]
+        ) / (2 * grad_step)
         gradB_y = (
-            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dy=gradB_step)
-            - interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dy=-gradB_step)
-        ) / (2 * gradB_step)
+            interp_field(Btot, pos, axes, dy=grad_step)[0]
+            - interp_field(Btot, pos, axes, dy=-grad_step)[0]
+        ) / (2 * grad_step)
         gradB_z = (
-            interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dz=gradB_step)
-            - interp_field(Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dz=-gradB_step)
-        ) / (2 * gradB_step)
+            interp_field(Btot, pos, axes, dz=grad_step)[0]
+            - interp_field(Btot, pos, axes, dz=-grad_step)[0]
+        ) / (2 * grad_step)
 
         q = -elementary_charge
 
         cross_term1 = cp.zeros((Bx_cur.size, 3))
-        cross_term1[:, 0] = Bx_cur / Btot_cur
-        cross_term1[:, 1] = By_cur / Btot_cur
-        cross_term1[:, 2] = Bz_cur / Btot_cur
+        cross_term1[:, 0] = Bx_hat_cur
+        cross_term1[:, 1] = By_hat_cur
+        cross_term1[:, 2] = Bz_hat_cur
       
         cross_term2 = cp.zeros((Bx_cur.size, 3))
         cross_term2[:, 0] = gradB_x
@@ -137,8 +160,7 @@ def sim(
         v_perp = cp.sqrt(mu * Btot_cur  / m_e) 
         scale_term = m_e * v_perp**2  / (2 * q * Btot_cur) 
 
-        # TODO need to work out the units
-        scale_term *= 1e12
+        scale_term *= 1e12        # TODO need to work out the units
         
         v_gradB = cp.zeros((Bx_cur.size, 3))
         v_gradB[:, :] = cp.cross(cross_term1, cross_term2)
@@ -147,27 +169,27 @@ def sim(
             v_gradB[:, i] *= scale_term
         
         # do the step
-        pos_x += dt * (vpar * (Bx_cur / Btot_cur) + v_gradB[:, 0])
-        pos_y += dt * (vpar * (By_cur / Btot_cur) + v_gradB[:, 1])
-        pos_z += dt * (vpar * (Bz_cur / Btot_cur) + v_gradB[:, 2])
+        pos.x += dt * (vpar * Bx_hat_cur + v_gradB[:, 0])
+        pos.y += dt * (vpar * By_hat_cur + v_gradB[:, 1])
+        pos.z += dt * (vpar * Bz_hat_cur + v_gradB[:, 2])
 
         # Step parallel velocity
         # -----------------------------------
         # bhat dot gradB
-        grad_step_x = grad_step * Bx_cur / Btot_cur
-        grad_step_y = grad_step * By_cur / Btot_cur
-        grad_step_z = grad_step * Bz_cur / Btot_cur    
-
+        grad_step_x = grad_step * Bx_hat_cur
+        grad_step_y = grad_step * By_hat_cur 
+        grad_step_z = grad_step * Bz_hat_cur
+        
         bhat_dot_gradB = (
             interp_field(
-                Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis,
+                Btot, pos, axes, 
                 dx=grad_step_x, dy=grad_step_y, dz=grad_step_z
-            )
+            )[0]
             -
             interp_field(
-                Btot, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis,
+                Btot, pos, axes, 
                 dx=-grad_step_x, dy=-grad_step_y, dz=-grad_step_z
-            )            
+            )[0]         
         ) / (2 * grad_step)
         
         # do the step
@@ -179,30 +201,43 @@ def sim(
     print()
 
 
-def interp_field(
-        field,
-        pos_x, pos_y, pos_z,
-        x_axis, y_axis, z_axis,
-        dx=0, dy=0, dz=0
-):
-    field_i = cp.searchsorted(x_axis, pos_x + dx)
-    field_j = cp.searchsorted(y_axis, pos_y + dy)
-    field_k = cp.searchsorted(z_axis, pos_z + dz)
+def interp_field(field, pos, axes, neighbors=None, dx=0, dy=0, dz=0):
+    """Interpolate a 3D gridded field at given positions.
 
-    result = cp.zeros(pos_x.shape)
+    Args
+      field: 3D gridded field to interpolate
+      pos: position vector
+      axes: rectilinear grid axes
+      neighbors: optional, reuse this value for lookup of the neighbors
+      dx, dy, dz: optional, perturb the position by these values    
+    Return
+      result: cupy array of interpolated field values at position
+      neighbors: neighbors object for reuse
+    """
+    pos_x_pert = pos.x + dx
+    pos_y_pert = pos.y + dy
+    pos_z_pert = pos.z + dz
     
-    arr_size = pos_x.size
+    if neighbors is None:
+        neighbors = Neighbors(
+            field_i=cp.searchsorted(axes.x, pos_x_pert),
+            field_j=cp.searchsorted(axes.y, pos_y_pert),
+            field_k=cp.searchsorted(axes.z, pos_z_pert),
+        )
+        
+    result = cp.zeros(pos.x.shape)    
+    arr_size = pos.x.size
     block_size = 1024
     grid_size = int(math.ceil(arr_size / block_size))
     
     interp_field_kernel[grid_size, block_size](
         arr_size, result, field,
-        field_i, field_j, field_k,
-        pos_x + dx, pos_y + dy, pos_z + dz,
-        x_axis, y_axis, z_axis
+        neighbors.field_i, neighbors.field_j, neighbors.field_k,
+        pos_x_pert, pos_y_pert, pos_z_pert,
+        axes.x, axes.y, axes.z
     )
 
-    return result
+    return result, neighbors
     
 
 @jit.rawkernel()
@@ -212,6 +247,11 @@ def interp_field_kernel(
         pos_x, pos_y, pos_z,
         x_axis, y_axis, z_axis
 ):
+    """Cupy Kernel to interpolate point amongst neighbors.
+    
+    Uses inverse distance weighted average. This kernel operates
+    on one position per thread.
+    """
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
     
     if idx < arr_size:    
@@ -231,34 +271,6 @@ def interp_field_kernel(
                     w_accum += w
     
         result[idx] /= w_accum
-    
-    
-# def interp_field_backup(field, pos_x, pos_y, pos_z, x_axis, y_axis, z_axis, dx=0, dy=0, dz=0):
-#     field_i = cp.searchsorted(x_axis, pos_x + dx)
-#     field_j = cp.searchsorted(y_axis, pos_y + dy)
-#     field_k = cp.searchsorted(z_axis, pos_z + dz)
-
-#     result = cp.zeros(pos_x.shape)
-#     w_accum = cp.zeros(pos_x.shape)
-    
-#     for di in range(2):
-#         for dj in range(2):
-#             for dk in range(2):
-#                 # TODO this requires GPU memory lookups in the
-#                 # x_axis[field_i + di] etc terms, and is expensive-- how to do
-#                 # this better?
-#                 dist_x = x_axis[field_i + di] - (pos_x + dx)
-#                 dist_y = y_axis[field_j + dj] - (pos_y + dy)
-#                 dist_z = z_axis[field_k + dk] - (pos_z + dz)
-                                
-#                 w = 1 / cp.sqrt(dist_x**2 + dist_y**2 + dist_z**2)                
-#                 f = field[field_i + di, field_j + dj, field_k + dk]
-
-#                 result += w * f
-#                 w_accum += w
-    
-#     return result / w_accum
-
 
 
 if __name__ == '__main__':
