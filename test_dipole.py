@@ -88,7 +88,7 @@ def main():
         d[f'vpar{i}'] = hist_vpar[:, i] 
         d[f'Btot{i}'] = hist_Btot[:, i]
         
-    pd.DataFrame(d).to_csv('out.csv')
+    pd.DataFrame(d).to_csv('data/test_dipole.csv')
 
 
 if __name__ == '__main__':
