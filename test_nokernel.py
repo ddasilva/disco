@@ -16,7 +16,7 @@ dt = .1                   # s
 vpar_start = .1           # earth radii / sec
 grid_spacing = 0.1
 grad_step = 5e-2          # finite diff delta step (half)
-mu = 1e-36                # first invariant
+mu = 1e-36                # first invariant, 1e9 (R_earth**2) A
 
 
 @dataclass
@@ -39,7 +39,6 @@ class PositionHistory:
     x: Any
     y: Any
     z: Any
-
 
 @dataclass
 class Neighbors:
@@ -66,12 +65,16 @@ def main():
     
     # Calculate Dipole on Grid
     r_grid = cp.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
-    
+
     Bx = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
     By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
     Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
     Btot = cp.sqrt(Bx**2 + By**2 + Bz**2)
-        
+
+    Ex = cp.zeros(Bx.shape)
+    Ey = cp.zeros(Bx.shape)
+    Ez = cp.zeros(Bx.shape)
+    
     # Instantiate particle positions and parallel velocity
     pos_x = cp.arange(3, 8, .01)
     pos_y = cp.zeros(pos_x.shape)
@@ -92,7 +95,7 @@ def main():
     print('Iterations:', MAX_ITERS)
     
     start_time = time.time()
-    sim(pos, vpar, hist, Bx, By, Bz, Btot, axes)
+    sim(pos, vpar, hist, Bx, By, Bz, Btot, Ex, Ey, Ez, axes)
     end_time = time.time()
     
     print('time = ', end_time - start_time, 's')
@@ -114,7 +117,7 @@ def main():
 
     
 #@line_profiler.profile
-def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
+def sim(pos, vpar, hist, Bx, By, Bz, Btot, Ex, Ey, Ez, axes):
     for i in range(MAX_ITERS):
         # Record history of positions
         hist.x[i, :] = pos.x
@@ -126,6 +129,9 @@ def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
         By_cur, _ = interp_field(By, pos, axes, neighbors=neighbors)
         Bz_cur, _ = interp_field(Bz, pos, axes, neighbors=neighbors)
         Btot_cur, _ = interp_field(Btot, pos, axes, neighbors=neighbors)
+        Ex_cur, _ = interp_field(Ex, pos, axes, neighbors=neighbors)
+        Ey_cur, _ = interp_field(Ey, pos, axes, neighbors=neighbors)
+        Ez_cur, _ = interp_field(Ez, pos, axes, neighbors=neighbors)
 
         Bx_hat_cur = Bx_cur / Btot_cur
         By_hat_cur = By_cur / Btot_cur
@@ -133,7 +139,7 @@ def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
         
         # Step Position
         # -----------------------------------------
-        # gradB guiding center term
+        # Gradient B drift and curvature drift guiding center term
         gradB_x = (
             interp_field(Btot, pos, axes, dx=grad_step)[0]
             - interp_field(Btot, pos, axes, dx=-grad_step)[0]
@@ -150,30 +156,43 @@ def sim(pos, vpar, hist, Bx, By, Bz, Btot, axes):
         q = -elementary_charge
 
         cross_term1 = cp.zeros((Bx_cur.size, 3))
-        cross_term1[:, 0] = Bx_hat_cur
-        cross_term1[:, 1] = By_hat_cur
-        cross_term1[:, 2] = Bz_hat_cur
+        cross_term1[:, 0] = Bx_cur
+        cross_term1[:, 1] = By_cur
+        cross_term1[:, 2] = Bz_cur
       
         cross_term2 = cp.zeros((Bx_cur.size, 3))
         cross_term2[:, 0] = gradB_x
         cross_term2[:, 1] = gradB_y
         cross_term2[:, 2] = gradB_z 
-
-        v_perp = cp.sqrt(mu * Btot_cur  / m_e) 
-        scale_term = m_e * v_perp**2  / (2 * q * Btot_cur) 
-
-        scale_term *= 1e12        # TODO need to work out the units
         
-        v_gradB = cp.zeros((Bx_cur.size, 3))
-        v_gradB[:, :] = cp.cross(cross_term1, cross_term2)
-
+        v_B = cp.zeros((Bx_cur.size, 3))
+        v_B[:, :] = cp.cross(cross_term1, cross_term2)
+        
+        v_perp = cp.sqrt(mu * Btot_cur / m_e)   # unit constants cancel out        
+        scale_term = m_e * (v_perp**2 + 2 * vpar**2)  / (2 * q * Btot_cur**3) 
+        #scale_term *= 1e9
+        scale_term *= 1e13
+        
         for i in range(3):
-            v_gradB[:, i] *= scale_term
+            v_B[:, i] *= scale_term
+
+        # Calculate ExB drift
+        cross_term2 = cp.zeros((Ex_cur.size, 3))
+        cross_term2[:, 0] = Ex_cur
+        cross_term2[:, 1] = Ey_cur
+        cross_term2[:, 2] = Ez_cur
+
+        v_ExB = cp.zeros((Ex_cur.size, 3))
+        v_ExB[:, :] = cp.cross(cross_term1, cross_term2)
+        scale_term = 1 / Btot_cur**2
         
+        for i in range(3):
+            v_ExB[:, i] *= scale_term
+
         # do the step
-        pos.x += dt * (vpar * Bx_hat_cur + v_gradB[:, 0])
-        pos.y += dt * (vpar * By_hat_cur + v_gradB[:, 1])
-        pos.z += dt * (vpar * Bz_hat_cur + v_gradB[:, 2])
+        pos.x += dt * (vpar * Bx_hat_cur + v_B[:, 0] + v_ExB[:, 0])
+        pos.y += dt * (vpar * By_hat_cur + v_B[:, 1] + v_ExB[:, 1])
+        pos.z += dt * (vpar * Bz_hat_cur + v_B[:, 2] + v_ExB[:, 2])
 
         # Step parallel velocity
         # -----------------------------------
