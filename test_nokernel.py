@@ -4,7 +4,7 @@ import pandas as pd
 
 import libgputrace 
 
-from scipy.constants import m_e
+from scipy.constants import elementary_charge, m_e
 
 
 EARTH_DIPOLE_B0 = -30e3   # nT
@@ -15,10 +15,7 @@ def main():
     """Main method of the program."""
     config = libgputrace.TraceConfig(
         max_iters=5000,          # number of iterations
-        dt=.1,                   # s
-        vpar_start=.1,           # earth radii / sec
-        mu=1e-36,                # first invariant, 1e9 (R_earth**2) A
-        particle_mass=m_e,
+        dt=.1,                   # seconds
     )
     grid_spacing = 0.1 
     
@@ -51,23 +48,25 @@ def main():
     pos_x = cp.arange(3, 8, .01)
     pos_y = cp.zeros(pos_x.shape)
     pos_z = cp.zeros(pos_x.shape)
-
-    pos = libgputrace.Positions(pos_x, pos_y, pos_z)
+    vpar = cp.ones(pos_x.shape) * 1e-1
+    magnetic_moment = cp.ones(pos_x.shape) * 1e-36
+    mass = cp.ones(pos_x.shape) * m_e
+    charge = cp.ones(pos_x.shape) * (-elementary_charge)
+    
+    particle_state = libgputrace.ParticleState(
+        pos_x, pos_y, pos_z,
+        vpar, magnetic_moment, mass, charge
+    )
+    
     print('Number of particles:', pos_x.size)
 
-    vpar = config.vpar_start * cp.ones(pos.x.shape)    
-
     # History of positions
-    hist = libgputrace.PositionHistory(
-        x=cp.zeros((config.max_iters, pos.x.size)),
-        y=cp.zeros((config.max_iters, pos.y.size)),
-        z=cp.zeros((config.max_iters, pos.y.size))
-    )
+    hist = libgputrace.ParticleHistory(config.max_iters, pos_x.size)
 
     print('Iterations:', config.max_iters)
     
     start_time = time.time()
-    libgputrace.trace_trajectory(config, pos, vpar, hist, Bx, By, Bz, Btot, Ex, Ey, Ez, axes)
+    libgputrace.trace_trajectory(config, particle_state, hist, Bx, By, Bz, Btot, Ex, Ey, Ez, axes)
     end_time = time.time()
     
     print('time = ', end_time - start_time, 's')
@@ -76,19 +75,20 @@ def main():
     hist_x = hist.x.get()
     hist_y = hist.y.get()
     hist_z = hist.z.get()
-
+    hist_vpar = hist.vpar.get()
+    hist_Btot = hist.Btot.get()
+    
     # Write output for visualization
     d = {}
     
-    for i in range(0, pos.x.size, 50):
+    for i in range(0, particle_state.x.size, 50):
         d[f'x{i}'] = hist_x[:, i]
         d[f'y{i}'] = hist_y[:, i]
-        d[f'z{i}'] = hist_z[:, i]        
-    
+        d[f'z{i}'] = hist_z[:, i] 
+        d[f'vpar{i}'] = hist_vpar[:, i] 
+        d[f'Btot{i}'] = hist_Btot[:, i]
+        
     pd.DataFrame(d).to_csv('out.csv')
-
-    
-#@line_profiler.profile
 
 
 if __name__ == '__main__':
