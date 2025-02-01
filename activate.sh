@@ -1,1 +1,0 @@
-micromamba activate gpu-integ
