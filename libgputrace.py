@@ -17,10 +17,13 @@ class TraceConfig:
 @dataclass
 class ParticleState:
     """1D arrays of cartesian particle position component"""
+    # these vary in time
     x: Any                    # units: earth radii
     y: Any                    # units: earth radii
     z: Any                    # units: earth radii
     vpar: Any                 # units: earth radii / s
+
+    # these *don't* vary in time
     magnetic_moment: Any      # first invariant, units: 1e9 (R_earth**2) A
     mass: Any                 # units: kilograms
     charge: Any               # units: columbs
@@ -58,7 +61,7 @@ class Neighbors:
 def trace_trajectory(config, particle_state, hist, Bx, By, Bz, Btot, Ex, Ey, Ez, axes):
     """Perform a euler integration particle trace.
     
-    Works on a rectilinear grid. 
+    Works on a rectilinear grid. 7
 
     Args
       config: instance of libgputrace.TraceConfig
@@ -69,125 +72,125 @@ def trace_trajectory(config, particle_state, hist, Bx, By, Bz, Btot, Ex, Ey, Ez,
       axes: instance of libgputrace.Axes
     """
     for i in range(config.max_iters):
+        dydt = rhs(particle_state, Bx, By, Bz, Btot, Ex, Ey, Ez, axes, config)
 
-        # Get B and Bhat vectors at particle locations
-        Bx_cur, neighbors = interp_field(Bx, particle_state, axes)
-        By_cur, _ = interp_field(By, particle_state, axes, neighbors=neighbors)
-        Bz_cur, _ = interp_field(Bz, particle_state, axes, neighbors=neighbors)
-        Btot_cur, _ = interp_field(Btot, particle_state, axes, neighbors=neighbors)
-        Ex_cur, _ = interp_field(Ex, particle_state, axes, neighbors=neighbors)
-        Ey_cur, _ = interp_field(Ey, particle_state, axes, neighbors=neighbors)
-        Ez_cur, _ = interp_field(Ez, particle_state, axes, neighbors=neighbors)
-
-        Bx_hat_cur = Bx_cur / Btot_cur
-        By_hat_cur = By_cur / Btot_cur
-        Bz_hat_cur = Bz_cur / Btot_cur
+        particle_state.x += config.dt * dydt[:, 0]
+        particle_state.y += config.dt * dydt[:, 1]
+        particle_state.z += config.dt * dydt[:, 2]
+        particle_state.vpar += config.dt * dydt[:, 3]
 
         # Record history of positions
         hist.x[i, :] = particle_state.x
         hist.y[i, :] = particle_state.y
         hist.z[i, :] = particle_state.z
         hist.vpar[i, :] = particle_state.vpar
-        hist.Btot[i, :] = Btot_cur
-        
-        # Step Position
-        # -----------------------------------------
-        # Gradient B drift and curvature drift guiding center term
-        gradB_x = (
-            interp_field(Btot, particle_state, axes, dx=config.grad_step)[0]
-            - interp_field(Btot, particle_state, axes, dx=-config.grad_step)[0]
-        ) / (2 * config.grad_step)
-        gradB_y = (
-            interp_field(Btot, particle_state, axes, dy=config.grad_step)[0]
-            - interp_field(Btot, particle_state, axes, dy=-config.grad_step)[0]
-        ) / (2 * config.grad_step)
-        gradB_z = (
-            interp_field(Btot, particle_state, axes, dz=config.grad_step)[0]
-            - interp_field(Btot, particle_state, axes, dz=-config.grad_step)[0]
-        ) / (2 * config.grad_step)
 
-        cross_term1 = cp.zeros((Bx_cur.size, 3))
-        cross_term1[:, 0] = Bx_cur
-        cross_term1[:, 1] = By_cur
-        cross_term1[:, 2] = Bz_cur
-      
-        cross_term2 = cp.zeros((Bx_cur.size, 3))
-        cross_term2[:, 0] = gradB_x
-        cross_term2[:, 1] = gradB_y
-        cross_term2[:, 2] = gradB_z 
-        
-        v_B = cp.zeros((Bx_cur.size, 3))
-        v_B[:, :] = cp.cross(cross_term1, cross_term2)
-        
-        v_perp = cp.sqrt(            # unit constant cancels 
-            particle_state.magnetic_moment * Btot_cur / particle_state.mass
-        )
-        
-        scale_term = particle_state.mass * (
-            (v_perp**2 + 2 * particle_state.vpar**2)
-            / (2 * particle_state.charge * Btot_cur**3)
-        )
-        #scale_term *= 1e9
-        scale_term *= 1e13
-        
-        for i in range(3):
-            v_B[:, i] *= scale_term
-
-        # Calculate ExB drift
-        cross_term2 = cp.zeros((Ex_cur.size, 3))
-        cross_term2[:, 0] = Ex_cur
-        cross_term2[:, 1] = Ey_cur
-        cross_term2[:, 2] = Ez_cur
-
-        v_ExB = cp.zeros((Ex_cur.size, 3))
-        v_ExB[:, :] = cp.cross(cross_term1, cross_term2)
-        scale_term = 1 / Btot_cur**2
-        
-        for i in range(3):
-            v_ExB[:, i] *= scale_term
-
-        # do the step
-        particle_state.x += config.dt * (
-            particle_state.vpar * Bx_hat_cur + v_B[:, 0] + v_ExB[:, 0]
-        )
-        particle_state.y += config.dt * (
-            particle_state.vpar * By_hat_cur + v_B[:, 1] + v_ExB[:, 1]
-        )
-        particle_state.z += config.dt * (
-            particle_state.vpar * Bz_hat_cur + v_B[:, 2] + v_ExB[:, 2]
-        )
-
-        # Step parallel velocity
-        # -----------------------------------
-        # bhat dot gradB
-        grad_step_x = config.grad_step * Bx_hat_cur
-        grad_step_y = config.grad_step * By_hat_cur 
-        grad_step_z = config.grad_step * Bz_hat_cur
-        
-        bhat_dot_gradB = (
-            interp_field(
-                Btot, particle_state, axes, 
-                dx=grad_step_x, dy=grad_step_y, dz=grad_step_z
-            )[0]
-            -
-            interp_field(
-                Btot, particle_state, axes, 
-                dx=-grad_step_x, dy=-grad_step_y, dz=-grad_step_z
-            )[0]         
-        ) / (2 * config.grad_step)
-        
-        # do the step
-        particle_state.vpar += - config.dt * (
-            (particle_state.magnetic_moment / particle_state.mass)
-            * bhat_dot_gradB
-        )
-        
         print('.', end='')
         sys.stdout.flush()
 
     print()
 
 
+def rhs(particle_state, Bx, By, Bz, Btot, Ex, Ey, Ez, axes, config):
+    # Get B and Bhat vectors at particle locations
+    Bx_cur, neighbors = interp_field(Bx, particle_state, axes)
+    By_cur, _ = interp_field(By, particle_state, axes, neighbors=neighbors)
+    Bz_cur, _ = interp_field(Bz, particle_state, axes, neighbors=neighbors)
+    Btot_cur, _ = interp_field(Btot, particle_state, axes, neighbors=neighbors)
+    Ex_cur, _ = interp_field(Ex, particle_state, axes, neighbors=neighbors)
+    Ey_cur, _ = interp_field(Ey, particle_state, axes, neighbors=neighbors)
+    Ez_cur, _ = interp_field(Ez, particle_state, axes, neighbors=neighbors)
+
+    Bx_hat_cur = Bx_cur / Btot_cur
+    By_hat_cur = By_cur / Btot_cur
+    Bz_hat_cur = Bz_cur / Btot_cur
+            
+    # Gradient B drift and curvature drift guiding center term
+    gradB_x = (
+        interp_field(Btot, particle_state, axes, dx=config.grad_step)[0]
+        - interp_field(Btot, particle_state, axes, dx=-config.grad_step)[0]
+    ) / (2 * config.grad_step)
+    gradB_y = (
+        interp_field(Btot, particle_state, axes, dy=config.grad_step)[0]
+        - interp_field(Btot, particle_state, axes, dy=-config.grad_step)[0]
+    ) / (2 * config.grad_step)
+    gradB_z = (
+    interp_field(Btot, particle_state, axes, dz=config.grad_step)[0]
+        - interp_field(Btot, particle_state, axes, dz=-config.grad_step)[0]
+    ) / (2 * config.grad_step)
+    
+    cross_term1 = cp.zeros((Bx_cur.size, 3))
+    cross_term1[:, 0] = Bx_cur
+    cross_term1[:, 1] = By_cur
+    cross_term1[:, 2] = Bz_cur
+    
+    cross_term2 = cp.zeros((Bx_cur.size, 3))
+    cross_term2[:, 0] = gradB_x
+    cross_term2[:, 1] = gradB_y
+    cross_term2[:, 2] = gradB_z 
+    
+    v_B = cp.zeros((Bx_cur.size, 3))
+    v_B[:, :] = cp.cross(cross_term1, cross_term2)
+    
+    v_perp = cp.sqrt(            # unit constant cancels 
+        particle_state.magnetic_moment * Btot_cur / particle_state.mass
+    )
+    
+    scale_term = particle_state.mass * (
+        (v_perp**2 + 2 * particle_state.vpar**2)
+        / (2 * particle_state.charge * Btot_cur**3)
+    )
+    #scale_term *= 1e9
+    scale_term *= 1e13
+    
+    for i in range(3):
+        v_B[:, i] *= scale_term
+        
+    # Calculate ExB drift
+    cross_term2 = cp.zeros((Ex_cur.size, 3))
+    cross_term2[:, 0] = Ex_cur
+    cross_term2[:, 1] = Ey_cur
+    cross_term2[:, 2] = Ez_cur
+    
+    v_ExB = cp.zeros((Ex_cur.size, 3))
+    v_ExB[:, :] = cp.cross(cross_term1, cross_term2)
+    scale_term = 1 / Btot_cur**2
+    
+    for i in range(3):
+        v_ExB[:, i] *= scale_term
+
+    # bhat dot gradB
+    grad_step_x = config.grad_step * Bx_hat_cur
+    grad_step_y = config.grad_step * By_hat_cur 
+    grad_step_z = config.grad_step * Bz_hat_cur
+    
+    bhat_dot_gradB = (
+        interp_field(
+            Btot, particle_state, axes, 
+            dx=grad_step_x, dy=grad_step_y, dz=grad_step_z
+        )[0]
+        -
+        interp_field(
+            Btot, particle_state, axes, 
+            dx=-grad_step_x, dy=-grad_step_y, dz=-grad_step_z
+        )[0]         
+    ) / (2 * config.grad_step)
+    
+    
+    # Set the derivative
+    dydt = cp.zeros((particle_state.x.size, 4))        
+    dydt[:, 0] = particle_state.vpar * Bx_hat_cur + v_B[:, 0] + v_ExB[:, 0]
+    dydt[:, 1] = particle_state.vpar * By_hat_cur + v_B[:, 1] + v_ExB[:, 1]
+    dydt[:, 2] = particle_state.vpar * Bz_hat_cur + v_B[:, 2] + v_ExB[:, 2]
+    dydt[:, 3] = - (
+        (particle_state.magnetic_moment / particle_state.mass)
+        * bhat_dot_gradB
+    )
+    
+    return dydt
+
+
+    
 def interp_field(field, particle_state, axes, neighbors=None, dx=0, dy=0, dz=0):
     """Interpolate a 3D gridded field at given positions.
 
