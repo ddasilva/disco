@@ -4,6 +4,8 @@ from cupyx import jit
 import math
 from dataclasses import dataclass
 from typing import Any
+from astropy import constants, units
+from scipy.constants import elementary_charge
 
 
 @dataclass
@@ -15,40 +17,150 @@ class TraceConfig:
 
     
 @dataclass
+class FieldModel:
+    """Set of magnetic and electric field models
+
+    See also:
+      Axes
+    """
+    Bx: Any
+    By: Any
+    Bz: Any
+    B: Any
+    Ex: Any
+    Ey: Any
+    Ez: Any
+
+    _dimensionalized: bool
+
+    @classmethod
+    def initialize(cls, Bx, By, Bz, B, Ex, Ey, Ez, mass):
+        """Get a FieldModel() instance that is dimensionalized 
+        and stored on the GPU.
+
+        mass is not part of field model, but is used for 
+        to redimensionalize.
+
+        Input argument should have astropy units attached.
+        Returns FieldModel instance         
+        """
+        q = elementary_charge * units.C
+        Re = constants.R_earth
+        c = constants.c
+        sf = (q * Re / (mass * c**2))
+        B_units = units.s / units.km
+        
+        gpu_Bx = cp.array((sf * Bx).to(B_units).value)
+        gpu_By = cp.array((sf * By).to(B_units).value)
+        gpu_Bz = cp.array((sf * Bz).to(B_units).value)
+        gpu_B = cp.array((sf * B).to(B_units).value)        
+        gpu_Ex = cp.array((sf * Ex).to(1).value)
+        gpu_Ey = cp.array((sf * Ey).to(1).value)
+        gpu_Ez = cp.array((sf * Ez).to(1).value)
+        
+        return FieldModel(
+            Bx=gpu_Bx, By=gpu_By, Bz=gpu_Bz, B=gpu_B,
+            Ex=gpu_Ex, Ey=gpu_Ey, Ez=gpu_Ez,
+            _dimensionalized=True
+            
+        )
+
+
+@dataclass
 class ParticleState:
     """1D arrays of cartesian particle position component"""
     # these vary in time
-    x: Any                    # units: earth radii
-    y: Any                    # units: earth radii
-    z: Any                    # units: earth radii
-    vpar: Any                 # units: earth radii / s
+    x: Any                    # x position
+    y: Any                    # y position
+    z: Any                    # z position
+    vpar: Any                 # parallel velocity
 
     # these *don't* vary in time
-    magnetic_moment: Any      # first invariant, units: 1e9 (R_earth**2) A
-    mass: Any                 # units: kilograms
-    charge: Any               # units: columbs
+    magnetic_moment: Any      # first invariant
+    mass: Any                 # rest mass
+    charge: Any               # charge
 
-    
+    _dimensionalized: bool
+
+    @classmethod
+    def initialize(cls, x, y, z, vpar, magnetic_moment, mass, charge):
+        """Get a ParticleState() instance that is dimensionalized 
+        and stored on the GPU.
+        
+        Input argument should have astropy units attached.
+        Returns ParticleState instance         
+        """
+        # Using redimensionalization of Elkington et al., 2002
+        q = elementary_charge * units.C
+        Re = constants.R_earth
+        c = constants.c
+        
+        gpu_x = cp.array((x / Re).to(1).value)
+        gpu_y = cp.array((y / Re).to(1).value)
+        gpu_z = cp.array((z / Re).to(1).value)
+        gpu_vpar = cp.array((vpar / c).to(1).value)
+        gpu_magnetic_moment = cp.array(
+            (magnetic_moment / (q * Re)).to(units.km/units.s).value
+        )
+        gpu_mass = cp.array(mass.to(units.kg).value)
+        gpu_charge = cp.array(charge.to(units.C).value)
+        
+        return ParticleState(
+            x=gpu_x, y=gpu_y, z=gpu_z, vpar=gpu_vpar,
+            magnetic_moment=gpu_magnetic_moment, mass=gpu_mass,
+            charge=gpu_charge, _dimensionalized=True        
+        )
+        
+        
 @dataclass
 class Axes:
     """1D arrays of rectilinear grid axes"""
-    x: Any                    # units: earth radii
-    y: Any                    # units: earth radii
-    z: Any                    # units: earth radii
+    x: Any                    # x axis
+    y: Any                    # y axis
+    z: Any                    # z axis
+    _dimensionalized: bool
     
+    @classmethod
+    def initialize(cls, x, y, z):
+        """Get Axes() instance that is dimensionalized and stored
+        on the GPU.
+
+        INput argument should have astropy units
+        Returns Axes instance
+        """        
+        Re = constants.R_earth
+        gpu_x = cp.array((x / Re).to(1).value)
+        gpu_y = cp.array((y / Re).to(1).value)
+        gpu_z = cp.array((z / Re).to(1).value)
+
+        return Axes(x=gpu_x, y=gpu_y, z=gpu_z, _dimensionalized=True)
+        
     
 @dataclass
 class ParticleHistory:
     """History of positions, velocity, and ambient field 
     strength (to calculate vperp).
     """
-    def __init__(self, size, num_particles):
-        self.x = cp.zeros((size, num_particles))
-        self.y = cp.zeros((size, num_particles))
-        self.z = cp.zeros((size, num_particles))
-        self.vpar = cp.zeros((size, num_particles))
-        self.Btot = cp.zeros((size, num_particles))
+    t: Any
+    x: Any
+    y: Any
+    z: Any
+    vpar: Any
+    B: Any      # local field strength
+    W: Any      # energy
+    
+    @classmethod
+    def initialize(cls, size, num_particles):
+        t = cp.zeros((size, num_particles))
+        x = cp.zeros((size, num_particles))
+        y = cp.zeros((size, num_particles))
+        z = cp.zeros((size, num_particles))
+        vpar = cp.zeros((size, num_particles))
+        B = cp.zeros((size, num_particles))
+        W = cp.zeros((size, num_particles))
 
+        return ParticleHistory(t=t,  x=x, y=y, z=z, vpar=vpar, B=B, W=W)
+        
         
 @dataclass
 class Neighbors:
@@ -58,136 +170,184 @@ class Neighbors:
     field_k: Any
 
 
-def trace_trajectory(config, particle_state, hist, Bx, By, Bz, Btot, Ex, Ey, Ez, axes):
+def trace_trajectory(config, particle_state, hist, field_model, axes):
     """Perform a euler integration particle trace.
     
-    Works on a rectilinear grid. 7
+    Works on a rectilinear grid.
 
     Args
       config: instance of libgputrace.TraceConfig
       particle_state: instance of libgputrace.ParticleState
       hist: instance of libgputrace.ParticleHistory
-      Bx, By, Bz: 3D magnetic field in units of nT
-      Ex, Ey, Ez: 3D magnetic field in TBD units
+      field_model: instance of libgputrace.FieldModel
       axes: instance of libgputrace.Axes
     """
-    for i in range(config.max_iters):
-        dydt = rhs(particle_state, Bx, By, Bz, Btot, Ex, Ey, Ez, axes, config)
+    if not axes._dimensionalized:
+        raise ValueError(
+            'axes must be created with Axes.initialize()'
+        )        
+    if not particle_state._dimensionalized:
+        raise ValueError(
+            'paritcle_state must be created with ParticleState.initialize()'
+        )
+    if not field_model._dimensionalized:
+        raise ValueError(
+            'field_model must be created with FieldModel.initialize()'
+        )
 
-        particle_state.x += config.dt * dydt[:, 0]
-        particle_state.y += config.dt * dydt[:, 1]
-        particle_state.z += config.dt * dydt[:, 2]
-        particle_state.vpar += config.dt * dydt[:, 3]
+    # dimensionalize timestep
+    t = cp.zeros(particle_state.x.size)
+    dt = ((constants.c/constants.R_earth) * config.dt * units.s).to(1).value
+
+    for i in range(config.max_iters):
+        dydt, B, W = rhs(particle_state, field_model, axes, config)
+
+        t += dt
+        particle_state.x += dt * dydt[:, 0]
+        particle_state.y += dt * dydt[:, 1]
+        particle_state.z += dt * dydt[:, 2]
+        particle_state.vpar += dt * dydt[:, 3]
 
         # Record history of positions
+        hist.x[i, :] = particle_state.x 
         hist.x[i, :] = particle_state.x
         hist.y[i, :] = particle_state.y
         hist.z[i, :] = particle_state.z
         hist.vpar[i, :] = particle_state.vpar
-
+        hist.B[i, :] = B
+        hist.W[i, :] = W
+        hist.t[i, :] = t
+        
         print('.', end='')
         sys.stdout.flush()
 
     print()
 
 
-def rhs(particle_state, Bx, By, Bz, Btot, Ex, Ey, Ez, axes, config):
-    # Get B and Bhat vectors at particle locations
-    Bx_cur, neighbors = interp_field(Bx, particle_state, axes)
-    By_cur, _ = interp_field(By, particle_state, axes, neighbors=neighbors)
-    Bz_cur, _ = interp_field(Bz, particle_state, axes, neighbors=neighbors)
-    Btot_cur, _ = interp_field(Btot, particle_state, axes, neighbors=neighbors)
-    Ex_cur, _ = interp_field(Ex, particle_state, axes, neighbors=neighbors)
-    Ey_cur, _ = interp_field(Ey, particle_state, axes, neighbors=neighbors)
-    Ez_cur, _ = interp_field(Ez, particle_state, axes, neighbors=neighbors)
+def rhs(particle_state, field_model, axes, config):
+    """RIght hand side of the guiding center equation differential equation.
 
-    Bx_hat_cur = Bx_cur / Btot_cur
-    By_hat_cur = By_cur / Btot_cur
-    Bz_hat_cur = Bz_cur / Btot_cur
-            
-    # Gradient B drift and curvature drift guiding center term
-    gradB_x = (
-        interp_field(Btot, particle_state, axes, dx=config.grad_step)[0]
-        - interp_field(Btot, particle_state, axes, dx=-config.grad_step)[0]
-    ) / (2 * config.grad_step)
-    gradB_y = (
-        interp_field(Btot, particle_state, axes, dy=config.grad_step)[0]
-        - interp_field(Btot, particle_state, axes, dy=-config.grad_step)[0]
-    ) / (2 * config.grad_step)
-    gradB_z = (
-    interp_field(Btot, particle_state, axes, dz=config.grad_step)[0]
-        - interp_field(Btot, particle_state, axes, dz=-config.grad_step)[0]
-    ) / (2 * config.grad_step)
+    Args
+      particle_state: instance of ParticleState (holds particle info)
+      field_model: instance of FieldModel (provides E and B fields)
+      axes: instance of Axes (rectilinear grid axes)
+      config: instance of Config (tracing configuration)
+    Returns
+      dydt: cupy array (nparticles, 4). First three columns are position, fourth
+        is parallel velocityn
+      B: redimensionalized magnetic field strength
+      W: redimensionalized energy
+    """
+    # Get B and E at particleposition
+    Bx, neighbors = interp_field(field_model.Bx, particle_state, axes)
+    By, _ = interp_field(field_model.By, particle_state, axes, neighbors=neighbors)
+    Bz, _ = interp_field(field_model.Bz, particle_state, axes, neighbors=neighbors)
+    B, _ = interp_field(field_model.B, particle_state, axes, neighbors=neighbors)
+    Ex, _ = interp_field(field_model.Ex, particle_state, axes, neighbors=neighbors)
+    Ey, _ = interp_field(field_model.Ey, particle_state, axes, neighbors=neighbors)
+    Ez, _ = interp_field(field_model.Ez, particle_state, axes, neighbors=neighbors)
     
-    cross_term1 = cp.zeros((Bx_cur.size, 3))
-    cross_term1[:, 0] = Bx_cur
-    cross_term1[:, 1] = By_cur
-    cross_term1[:, 2] = Bz_cur
+    # Get derivatives from finite difference
+    eps = config.grad_step
     
-    cross_term2 = cp.zeros((Bx_cur.size, 3))
-    cross_term2[:, 0] = gradB_x
-    cross_term2[:, 1] = gradB_y
-    cross_term2[:, 2] = gradB_z 
-    
-    v_B = cp.zeros((Bx_cur.size, 3))
-    v_B[:, :] = cp.cross(cross_term1, cross_term2)
-    
-    v_perp = cp.sqrt(            # unit constant cancels 
-        particle_state.magnetic_moment * Btot_cur / particle_state.mass
-    )
-    
-    scale_term = particle_state.mass * (
-        (v_perp**2 + 2 * particle_state.vpar**2)
-        / (2 * particle_state.charge * Btot_cur**3)
-    )
-    #scale_term *= 1e9
-    scale_term *= 1e13
-    
-    for i in range(3):
-        v_B[:, i] *= scale_term
+    dBdx = (
+        interp_field(field_model.B, particle_state, axes, dx=eps)[0]
+        - interp_field(field_model.B, particle_state, axes, dx=-eps)[0]
+    ) / (2 * eps)
+    dBdy = (
+        interp_field(field_model.B, particle_state, axes, dy=eps)[0]
+        - interp_field(field_model.B, particle_state, axes, dy=-eps)[0]
+    ) / (2 * eps)
+    dBdz = (
+        interp_field(field_model.B, particle_state, axes, dz=eps)[0]
+        - interp_field(field_model.B, particle_state, axes, dz=-eps)[0]
+    ) / (2 * eps)
         
-    # Calculate ExB drift
-    cross_term2 = cp.zeros((Ex_cur.size, 3))
-    cross_term2[:, 0] = Ex_cur
-    cross_term2[:, 1] = Ey_cur
-    cross_term2[:, 2] = Ez_cur
-    
-    v_ExB = cp.zeros((Ex_cur.size, 3))
-    v_ExB[:, :] = cp.cross(cross_term1, cross_term2)
-    scale_term = 1 / Btot_cur**2
-    
-    for i in range(3):
-        v_ExB[:, i] *= scale_term
+    # dBxdx = (
+    #     interp_field(field_model.Bx, particle_state, axes, dx=eps)[0]
+    #     - interp_field(field_model.Bx, particle_state, axes, dx=-eps)[0]
+    # ) / (2 * eps)
+    dBxdy = (
+        interp_field(field_model.Bx, particle_state, axes, dy=eps)[0]
+        - interp_field(field_model.Bx, particle_state, axes, dy=-eps)[0]
+    ) / (2 * eps)
+    dBxdz = (
+        interp_field(field_model.Bx, particle_state, axes, dz=eps)[0]
+        - interp_field(field_model.Bx, particle_state, axes, dz=-eps)[0]
+    ) / (2 * eps)
 
-    # bhat dot gradB
-    grad_step_x = config.grad_step * Bx_hat_cur
-    grad_step_y = config.grad_step * By_hat_cur 
-    grad_step_z = config.grad_step * Bz_hat_cur
+
+    dBydx = (
+        interp_field(field_model.By, particle_state, axes, dx=eps)[0]
+        - interp_field(field_model.By, particle_state, axes, dx=-eps)[0]
+    ) / (2 * eps)
+    # dBydy = (
+    #     interp_field(field_model.By, particle_state, axes, dy=eps)[0]
+    #     - interp_field(field_model.By, particle_state, axes, dy=-eps)[0]
+    # ) / (2 * eps)
+    dBydz = (
+        interp_field(field_model.By, particle_state, axes, dz=eps)[0]
+        - interp_field(field_model.By, particle_state, axes, dz=-eps)[0]
+    ) / (2 * eps)
+
+    dBzdx = (
+        interp_field(field_model.Bz, particle_state, axes, dx=eps)[0]
+        - interp_field(field_model.Bz, particle_state, axes, dx=-eps)[0]
+    ) / (2 * eps)
+    dBzdy = (
+        interp_field(field_model.Bz, particle_state, axes, dy=eps)[0]
+        - interp_field(field_model.Bz, particle_state, axes, dy=-eps)[0]
+    ) / (2 * eps)
+    # dBzdz = (
+    #     interp_field(field_model.Bz, particle_state, axes, dz=eps)[0]
+    #     - interp_field(field_model.Bz, particle_state, axes, dz=-eps)[0]
+    # ) / (2 * eps)
+
+    # gyro-averaged equations of motion developed by Brizzard and Chan (Phys.
+    # Plasmas 6, 4553, 1999),
+    vpar = particle_state.vpar
+    M = particle_state.magnetic_moment
     
-    bhat_dot_gradB = (
-        interp_field(
-            Btot, particle_state, axes, 
-            dx=grad_step_x, dy=grad_step_y, dz=grad_step_z
-        )[0]
-        -
-        interp_field(
-            Btot, particle_state, axes, 
-            dx=-grad_step_x, dy=-grad_step_y, dz=-grad_step_z
-        )[0]         
-    ) / (2 * config.grad_step)
+    gamma = cp.sqrt(1 + 2 * B * M + vpar**2)
+    pparl_B = vpar / B
+    pparl_B2 = pparl_B / B
+    Bxstar = Bx + pparl_B * (dBzdy - dBydz) - pparl_B2 * (Bz * dBdy - By * dBdz)
+    Bystar = By + pparl_B * (dBxdz - dBzdx) - pparl_B2 * (Bx * dBdz - Bz * dBdx)
+    Bzstar = Bz + pparl_B * (dBydx - dBxdy) - pparl_B2 * (By * dBdx - Bx * dBdy)
+    Bsparl = (Bx * Bxstar + By * Bystar + Bz * Bzstar) / B
+    gamma_Bsparl=1 / gamma / Bsparl
+    pparl_gamma_Bsparl= vpar * gamma_Bsparl
+    B_Bsparl = 1/ (B * Bsparl)
+    M_gamma_Bsparl = M * gamma_Bsparl
+    M_gamma_B_Bsparl = M_gamma_Bsparl / B
+
+    # 	  ...now calculate dynamic quantities...
+    dydt = cp.zeros((particle_state.x.size, 4))
     
-    
-    # Set the derivative
-    dydt = cp.zeros((particle_state.x.size, 4))        
-    dydt[:, 0] = particle_state.vpar * Bx_hat_cur + v_B[:, 0] + v_ExB[:, 0]
-    dydt[:, 1] = particle_state.vpar * By_hat_cur + v_B[:, 1] + v_ExB[:, 1]
-    dydt[:, 2] = particle_state.vpar * Bz_hat_cur + v_B[:, 2] + v_ExB[:, 2]
-    dydt[:, 3] = - (
-        (particle_state.magnetic_moment / particle_state.mass)
-        * bhat_dot_gradB
+    dydt[:, 0] = (
+        pparl_gamma_Bsparl *Bxstar                     # curv drft + parl
+        +M_gamma_B_Bsparl * (By * dBdz - Bz * dBdy)    # gradB drft
+     	+B_Bsparl * (Ey * Bz - Ez * By)		       # ExB drft
     )
+    dydt[:, 1] = (
+        pparl_gamma_Bsparl * Bystar	               # curv drft + parl
+     	+ M_gamma_B_Bsparl * (Bz * dBdx - Bx * dBdz)   # gradB drft
+     	+ B_Bsparl * (Ez * Bx - Ex * Bz)               # ExB drft
+    )
+    dydt[:, 2] = (
+        pparl_gamma_Bsparl * Bzstar		       # curv drft + parl
+     	+M_gamma_B_Bsparl*(Bx*dBdy-By*dBdx)            # gradB drft
+     	+B_Bsparl*(Ex*By-Ey*Bx)		               # ExB drft
+    )
+    dydt[:, 3] = (
+        (Bxstar * Ex + Bystar * Ey + Bzstar * Ez) / Bsparl   # parl force
+        - M_gamma_Bsparl * (Bxstar * dBdx+Bystar * dBdy + Bzstar * dBdz)
+    )
+
+    # calculate energy
+    W = gamma - 1
     
-    return dydt
+    return dydt, B, W
 
 
     

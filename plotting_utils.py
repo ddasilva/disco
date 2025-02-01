@@ -1,6 +1,6 @@
 from matplotlib.patches import Wedge 
 from matplotlib import pyplot as plt
-import numpy as np
+
 
 def add_earth(ax=None):
     """Add an earth with dayside/nightside shaded to plot.
