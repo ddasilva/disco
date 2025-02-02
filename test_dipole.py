@@ -32,13 +32,13 @@ def main():
     
     print('Grid Shape:', x_grid.shape)
     
-    # Instantiate particle positions and parallel velocity
+    # Instantiate particle state and parallel velocity
     pos_x = np.arange(3, 8, .01) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
     vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
     magnetic_moment = np.ones(pos_x.shape) * 1e-36 * 1e9 * units.A * constants.R_earth**2
-    charge = np.ones(pos_x.shape) * (-elementary_charge) * units.C
+    charge = - elementary_charge * units.C
     mass = constants.m_e
     particle_state = libgputrace.ParticleState.initialize(
         pos_x, pos_y, pos_z, 
@@ -67,7 +67,7 @@ def main():
     Ez = np.zeros(Bx.shape) * units.mV/units.m
 
     field_model = libgputrace.FieldModel.initialize(
-        Bx, By, Bz, B, Ex, Ey, Ez, mass
+        Bx, By, Bz, B, Ex, Ey, Ez, mass, charge,
     )
     
     # History of positions

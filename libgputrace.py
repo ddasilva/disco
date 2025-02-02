@@ -34,7 +34,7 @@ class FieldModel:
     _dimensionalized: bool
 
     @classmethod
-    def initialize(cls, Bx, By, Bz, B, Ex, Ey, Ez, mass):
+    def initialize(cls, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge):
         """Get a FieldModel() instance that is dimensionalized 
         and stored on the GPU.
 
@@ -44,7 +44,7 @@ class FieldModel:
         Input argument should have astropy units attached.
         Returns FieldModel instance         
         """
-        q = elementary_charge * units.C
+        q = charge
         Re = constants.R_earth
         c = constants.c
         sf = (q * Re / (mass * c**2))
@@ -78,7 +78,6 @@ class ParticleState:
     # these *don't* vary in time
     magnetic_moment: Any      # first invariant
     mass: Any                 # rest mass
-    charge: Any               # charge
 
     _dimensionalized: bool
 
@@ -87,11 +86,12 @@ class ParticleState:
         """Get a ParticleState() instance that is dimensionalized 
         and stored on the GPU.
         
-        Input argument should have astropy units attached.
+        Input argument should have astropy units attached, except 
+        `charge'.
         Returns ParticleState instance         
         """
         # Using redimensionalization of Elkington et al., 2002
-        q = elementary_charge * units.C
+        q = charge
         Re = constants.R_earth
         c = constants.c
         
@@ -103,12 +103,11 @@ class ParticleState:
             (magnetic_moment / (q * Re)).to(units.km/units.s).value
         )
         gpu_mass = cp.array(mass.to(units.kg).value)
-        gpu_charge = cp.array(charge.to(units.C).value)
         
         return ParticleState(
             x=gpu_x, y=gpu_y, z=gpu_z, vpar=gpu_vpar,
             magnetic_moment=gpu_magnetic_moment, mass=gpu_mass,
-            charge=gpu_charge, _dimensionalized=True        
+            _dimensionalized=True        
         )
         
         
