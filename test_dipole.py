@@ -10,13 +10,10 @@ from scipy.constants import elementary_charge
 
 EARTH_DIPOLE_B0 = -30e3   # nT
 
-    
+
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(
-        max_iters=5000,          # number of iterations
-        dt=1,                    # seconds
-    )
+    config = libgputrace.TraceConfig(t_final=5000)
     grid_spacing = 0.1 
     
     # Setup axes and grid
@@ -71,12 +68,12 @@ def main():
     )
     
     # History of positions
-    hist = libgputrace.ParticleHistory.initialize(config.max_iters, pos_x.size)
+    #hist = libgputrace.ParticleHistory.initialize(config.max_iters, pos_x.size)
 
-    print('Iterations:', config.max_iters)
+    #print('Iterations:', config.max_iters)
     
     start_time = time.time()
-    libgputrace.trace_trajectory(config, particle_state, hist, field_model, axes)
+    libgputrace.trace_trajectory(config, particle_state, None, field_model, axes)
     end_time = time.time()
     
     print('time = ', end_time - start_time, 's')

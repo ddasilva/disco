@@ -6,13 +6,18 @@ from dataclasses import dataclass
 from typing import Any
 from astropy import constants, units
 from scipy.constants import elementary_charge
+import numpy as np
 
 
 @dataclass
 class TraceConfig:
     """Configuration for running the tracing code"""
-    max_iters: int            # number of iterations
-    dt: float                 # units: seconds
+    t_final: float            # end time of integration
+    h_initial: float = .1     # initial step size
+    h_min = .0001             # min step size
+    h_max = 1000              # max step size
+    rtol: float = 1e-3        # relative tolerance
+    atol: float = 1e-2        # absolute tolerance
     grad_step: float = 5e-2   # finite diff delta step (half)
 
     
@@ -169,6 +174,40 @@ class Neighbors:
     field_k: Any
 
 
+class RK45Coeffs:
+    """
+    Coefficients of the RK45 Algorithm
+    """
+    a2 = 0.25;
+    a3 = 0.375;
+    a4 = 12/13;
+    a6 = 0.5;
+    b21 = 0.25;
+    b31 = 3/32;
+    b32 = 9/32;
+    b41 = 1932/2197;
+    b42 = -7200/2197;
+    b43 = 7296/2197;
+    b51 = 439/216;
+    b52 = -8;
+    b53 = 3680/513;
+    b54 = -845/4104;
+    b61 = -8/27;
+    b62 = 2;
+    b63 = -3544/2565;
+    b64 = 1859/4104;
+    b65 = -11/40;
+    c1 = 25/216;
+    c3 = 1408/2565;
+    c4 = 2197/4104;
+    c5 = -0.20;
+    d1 = 1/360;
+    d3 = -128/4275;
+    d4 = -2197/75240;
+    d5 = 0.02;
+    d6 = 2/55;
+    
+    
 def trace_trajectory(config, particle_state, hist, field_model, axes):
     """Perform a euler integration particle trace.
     
@@ -194,40 +233,90 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
             'field_model must be created with FieldModel.initialize()'
         )
 
-    # dimensionalize timestep
+    # This implements the RK45 adaptive integration algorithm, with
+    # absolute/relative tolerance and minimum/maximum step sizes
     t = cp.zeros(particle_state.x.size)
-    dt = ((constants.c/constants.R_earth) * config.dt * units.s).to(1).value
+    y = cp.zeros((particle_state.x.size, 5))
+    y[:, 0] = particle_state.x
+    y[:, 1] = particle_state.y
+    y[:, 2] = particle_state.z
+    y[:, 3] = particle_state.vpar
+    y[:, 4] = particle_state.magnetic_moment
+    h = cp.ones(particle_state.x.size) * config.h_initial
+    h_min = cp.ones(particle_state.x.size) * config.h_min
+    h_max = cp.ones(particle_state.x.size) * config.h_max
+    t_final = redim_time(config.t_final)
+    all_complete = False
+    R = RK45Coeffs
+    iter_count = 0
+    
+    while not all_complete:
+        h = cp.minimum(h_max, cp.maximum(h, h_min))        
+        h_ = cp.zeros((h.size, 5))               # cupy broadcasting workaround
+        for i in range(5):
+            h_[:, i] = h
 
-    for i in range(config.max_iters):
-        dydt, B, W = rhs(particle_state, field_model, axes, config)
+        k1, _, _ = rhs(y, field_model, axes, config)
+        k2, _, _ = rhs(y + h_ * R.b21 * k1, field_model, axes, config)
+        k3, _, _ = rhs(y + h_ * (R.b31*k1 + R.b32*k2), field_model, axes, config)
+        k4, _, _ = rhs(y + h_ * (R.b41*k1 + R.b42*k2 + R.b43*k3),field_model, axes, config)
+        k5, _, _ = rhs(y + h_ * (R.b51*k1 + R.b52*k2 + R.b53*k3 + R.b54*k4),field_model, axes, config)
+        k6, _, _ = rhs(y + h_ * (R.b61*k1 + R.b62*k2 + R.b63*k3 + R.b64*k4 + R.b65*k5), field_model, axes, config)
+                
+        temp_y = y + h_ * (R.c1*k1 + R.c3*k3 + R.c4*k4 + R.c5*k5)
+        err = R.d1*k1 + R.d3*k3 + R.d4*k4 + R.d5*k5 + R.d6*k6
+        err = cp.linalg.norm(err, axis=1)        
+        scale = 0.9*(config.atol/err)**(1/5);
+        ymag = cp.linalg.norm(y, axis=1)
 
-        t += dt
-        particle_state.x += dt * dydt[:, 0]
-        particle_state.y += dt * dydt[:, 1]
-        particle_state.z += dt * dydt[:, 2]
-        particle_state.vpar += dt * dydt[:, 3]
+        mask = (err < config.rtol * ymag) & (err < config.atol) & (t < t_final)
 
-        # Record history of positions
-        hist.x[i, :] = particle_state.x 
-        hist.x[i, :] = particle_state.x
-        hist.y[i, :] = particle_state.y
-        hist.z[i, :] = particle_state.z
-        hist.vpar[i, :] = particle_state.vpar
-        hist.B[i, :] = B
-        hist.W[i, :] = W
-        hist.t[i, :] = t
-        
-        print('.', end='')
+        t[mask] += h[mask]
+        y[mask] = temp_y[mask]
+        h = h * scale
+        all_complete = cp.all(t >= t_final)
+        iter_count += 1
+
+        print('Complete:', cp.sum(t >= t_final))
+        #print(y[:, :3].get())
+        #print('.', end='')
         sys.stdout.flush()
+    
+    print(f'Took {iter_count} iterations')
+        #print(y[:, :3])
+        #print('.', end='')
+        #sys.stdout.flush()
+        
+    # for i in range(config.max_iters):
+    #     dydt, B, W = rhs(particle_state, field_model, axes, config)
+
+    #     t += dt
+    #     particle_state.x += dt * dydt[:, 0]
+    #     particle_state.y += dt * dydt[:, 1]
+    #     particle_state.z += dt * dydt[:, 2]
+    #     particle_state.vpar += dt * dydt[:, 3]
+
+    #     # Record history of positions
+    #     hist.x[i, :] = particle_state.x 
+    #     hist.x[i, :] = particle_state.x
+    #     hist.y[i, :] = particle_state.y
+    #     hist.z[i, :] = particle_state.z
+    #     hist.vpar[i, :] = particle_state.vpar
+    #     hist.B[i, :] = B
+    #     hist.W[i, :] = W
+    #     hist.t[i, :] = t
+        
+    #     print('.', end='')
+    #     sys.stdout.flush()
 
     print()
 
 
-def rhs(particle_state, field_model, axes, config):
+def rhs(y, field_model, axes, config):
     """RIght hand side of the guiding center equation differential equation.
 
     Args
-      particle_state: instance of ParticleState (holds particle info)
+      y: ODE state variable
       field_model: instance of FieldModel (provides E and B fields)
       axes: instance of Axes (rectilinear grid axes)
       config: instance of Config (tracing configuration)
@@ -237,75 +326,79 @@ def rhs(particle_state, field_model, axes, config):
       B: redimensionalized magnetic field strength
       W: redimensionalized energy
     """
+    pos_x = y[:, 0]
+    pos_y = y[:, 1]
+    pos_z = y[:, 2]            
+    vpar = y[:, 3]
+    M = y[:, 4]
+ 
     # Get B and E at particleposition
-    Bx, neighbors = interp_field(field_model.Bx, particle_state, axes)
-    By, _ = interp_field(field_model.By, particle_state, axes, neighbors=neighbors)
-    Bz, _ = interp_field(field_model.Bz, particle_state, axes, neighbors=neighbors)
-    B, _ = interp_field(field_model.B, particle_state, axes, neighbors=neighbors)
-    Ex, _ = interp_field(field_model.Ex, particle_state, axes, neighbors=neighbors)
-    Ey, _ = interp_field(field_model.Ey, particle_state, axes, neighbors=neighbors)
-    Ez, _ = interp_field(field_model.Ez, particle_state, axes, neighbors=neighbors)
+    Bx, neighbors = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes)
+    By, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
+    Bz, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
+    B, _ = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
+    Ex, _ = interp_field(field_model.Ex, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
+    Ey, _ = interp_field(field_model.Ey, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
+    Ez, _ = interp_field(field_model.Ez, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
     
     # Get derivatives from finite difference
     eps = config.grad_step
     
     dBdx = (
-        interp_field(field_model.B, particle_state, axes, dx=eps)[0]
-        - interp_field(field_model.B, particle_state, axes, dx=-eps)[0]
+        interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=eps)[0]
+        - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
     ) / (2 * eps)
     dBdy = (
-        interp_field(field_model.B, particle_state, axes, dy=eps)[0]
-        - interp_field(field_model.B, particle_state, axes, dy=-eps)[0]
+        interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=eps)[0]
+        - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
     ) / (2 * eps)
     dBdz = (
-        interp_field(field_model.B, particle_state, axes, dz=eps)[0]
-        - interp_field(field_model.B, particle_state, axes, dz=-eps)[0]
+        interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=eps)[0]
+        - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
     ) / (2 * eps)
         
     # dBxdx = (
-    #     interp_field(field_model.Bx, particle_state, axes, dx=eps)[0]
-    #     - interp_field(field_model.Bx, particle_state, axes, dx=-eps)[0]
+    #     interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=eps)[0]
+    #     - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
     # ) / (2 * eps)
     dBxdy = (
-        interp_field(field_model.Bx, particle_state, axes, dy=eps)[0]
-        - interp_field(field_model.Bx, particle_state, axes, dy=-eps)[0]
+        interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=eps)[0]
+        - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
     ) / (2 * eps)
     dBxdz = (
-        interp_field(field_model.Bx, particle_state, axes, dz=eps)[0]
-        - interp_field(field_model.Bx, particle_state, axes, dz=-eps)[0]
+        interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=eps)[0]
+        - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
     ) / (2 * eps)
 
 
     dBydx = (
-        interp_field(field_model.By, particle_state, axes, dx=eps)[0]
-        - interp_field(field_model.By, particle_state, axes, dx=-eps)[0]
+        interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=eps)[0]
+        - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
     ) / (2 * eps)
     # dBydy = (
-    #     interp_field(field_model.By, particle_state, axes, dy=eps)[0]
-    #     - interp_field(field_model.By, particle_state, axes, dy=-eps)[0]
+    #     interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=eps)[0]
+    #     - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
     # ) / (2 * eps)
     dBydz = (
-        interp_field(field_model.By, particle_state, axes, dz=eps)[0]
-        - interp_field(field_model.By, particle_state, axes, dz=-eps)[0]
+        interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=eps)[0]
+        - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
     ) / (2 * eps)
 
     dBzdx = (
-        interp_field(field_model.Bz, particle_state, axes, dx=eps)[0]
-        - interp_field(field_model.Bz, particle_state, axes, dx=-eps)[0]
+        interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=eps)[0]
+        - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
     ) / (2 * eps)
     dBzdy = (
-        interp_field(field_model.Bz, particle_state, axes, dy=eps)[0]
-        - interp_field(field_model.Bz, particle_state, axes, dy=-eps)[0]
+        interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=eps)[0]
+        - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
     ) / (2 * eps)
     # dBzdz = (
-    #     interp_field(field_model.Bz, particle_state, axes, dz=eps)[0]
-    #     - interp_field(field_model.Bz, particle_state, axes, dz=-eps)[0]
+    #     interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=eps)[0]
+    #     - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
     # ) / (2 * eps)
 
     # gyro-averaged equations of motion developed by Brizzard and Chan (Phys.
     # Plasmas 6, 4553, 1999),
-    vpar = particle_state.vpar
-    M = particle_state.magnetic_moment
     
     gamma = cp.sqrt(1 + 2 * B * M + vpar**2)
     pparl_B = vpar / B
@@ -321,7 +414,7 @@ def rhs(particle_state, field_model, axes, config):
     M_gamma_B_Bsparl = M_gamma_Bsparl / B
 
     # 	  ...now calculate dynamic quantities...
-    dydt = cp.zeros((particle_state.x.size, 4))
+    dydt = cp.zeros((pos_x.size, 5))
     
     dydt[:, 0] = (
         pparl_gamma_Bsparl *Bxstar                     # curv drft + parl
@@ -350,12 +443,12 @@ def rhs(particle_state, field_model, axes, config):
 
 
     
-def interp_field(field, particle_state, axes, neighbors=None, dx=0, dy=0, dz=0):
+def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None, dx=0, dy=0, dz=0):
     """Interpolate a 3D gridded field at given positions.
 
     Args
       field: 3D gridded field to interpolate
-      partilce_state: instance of ParticleState
+      pos_x, pos_y, pos_z: particle positions
       axes: rectilinear grid axes
       neighbors: optional, reuse this value for lookup of the neighbors
       dx, dy, dz: optional, perturb the position by these values    
@@ -363,9 +456,9 @@ def interp_field(field, particle_state, axes, neighbors=None, dx=0, dy=0, dz=0):
       result: cupy array of interpolated field values at position
       neighbors: neighbors object for reuse
     """ 
-    pos_x_pert = particle_state.x + dx
-    pos_y_pert = particle_state.y + dy
-    pos_z_pert = particle_state.z + dz
+    pos_x_pert = pos_x + dx
+    pos_y_pert = pos_y + dy
+    pos_z_pert = pos_z + dz
     
     if neighbors is None:
         neighbors = Neighbors(
@@ -374,8 +467,8 @@ def interp_field(field, particle_state, axes, neighbors=None, dx=0, dy=0, dz=0):
             field_k=cp.searchsorted(axes.z, pos_z_pert),
         )
         
-    result = cp.zeros(particle_state.x.shape)    
-    arr_size = particle_state.x.size
+    result = cp.zeros(pos_x.shape)    
+    arr_size = pos_x.size
     block_size = 1024
     grid_size = int(math.ceil(arr_size / block_size))
     
@@ -420,3 +513,18 @@ def interp_field_kernel(
                     w_accum += w
     
         result[idx] /= w_accum
+
+
+def redim_time(val):
+    """Redimensionalize a time value.
+
+    Args
+      value: value in seconds
+    Returns
+      value in redimensionalized units
+    """
+
+    return (
+        (constants.c * val * units.s / constants.R_earth)
+        .to(1).value
+    )
