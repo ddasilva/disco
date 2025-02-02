@@ -258,10 +258,21 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
 
         k1, _, _ = rhs(y, field_model, axes, config)
         k2, _, _ = rhs(y + h_ * R.b21 * k1, field_model, axes, config)
-        k3, _, _ = rhs(y + h_ * (R.b31*k1 + R.b32*k2), field_model, axes, config)
-        k4, _, _ = rhs(y + h_ * (R.b41*k1 + R.b42*k2 + R.b43*k3),field_model, axes, config)
-        k5, _, _ = rhs(y + h_ * (R.b51*k1 + R.b52*k2 + R.b53*k3 + R.b54*k4),field_model, axes, config)
-        k6, _, _ = rhs(y + h_ * (R.b61*k1 + R.b62*k2 + R.b63*k3 + R.b64*k4 + R.b65*k5), field_model, axes, config)
+        k3, _, _ = rhs(
+            y + h_ * (R.b31*k1 + R.b32*k2), field_model, axes, config
+        )
+        k4, _, _ = rhs(
+            y + h_ * (R.b41*k1 + R.b42*k2 + R.b43*k3),
+            field_model, axes, config
+        )
+        k5, _, _ = rhs(
+            y + h_ * (R.b51*k1 + R.b52*k2 + R.b53*k3 + R.b54*k4),
+            field_model, axes, config
+        )
+        k6, _, _ = rhs(
+            y + h_ * (R.b61*k1 + R.b62*k2 + R.b63*k3 + R.b64*k4 + R.b65*k5),
+            field_model, axes, config
+        )
                 
         temp_y = y + h_ * (R.c1*k1 + R.c3*k3 + R.c4*k4 + R.c5*k5)
         err = R.d1*k1 + R.d3*k3 + R.d4*k4 + R.d5*k5 + R.d6*k6
@@ -277,7 +288,7 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
         all_complete = cp.all(t >= t_final)
         iter_count += 1
 
-        print('Complete:', cp.sum(t >= t_final))
+        print('Complete:', 100 * cp.sum(t >= t_final) /  t.size,'%')
         #print(y[:, :3].get())
         #print('.', end='')
         sys.stdout.flush()
