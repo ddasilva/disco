@@ -14,10 +14,9 @@ class TraceConfig:
     """Configuration for running the tracing code"""
     t_final: float            # end time of integration
     h_initial: float = .1     # initial step size
-    h_min = .0001             # min step size
+    h_min = .01             # min step size
     h_max = 1000              # max step size
     rtol: float = 1e-3        # relative tolerance
-    atol: float = 1e-2        # absolute tolerance
     grad_step: float = 5e-2   # finite diff delta step (half)
 
     
@@ -251,46 +250,48 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
     iter_count = 0
     
     while not all_complete:
-        h = cp.minimum(h_max, cp.maximum(h, h_min))        
+        h = cp.minimum(h_max, cp.maximum(h, h_min))
+        h = cp.minimum(h, t_final - h)
         h_ = cp.zeros((h.size, 5))               # cupy broadcasting workaround
         for i in range(5):
             h_[:, i] = h
 
-        k1, _, _ = rhs(y, field_model, axes, config)
-        k2, _, _ = rhs(y + h_ * R.b21 * k1, field_model, axes, config)
-        k3, _, _ = rhs(
+        k1 = h_ * rhs(y, field_model, axes, config)
+        k2 = h_ * rhs(y + h_ * R.b21 * k1, field_model, axes, config)
+        k3 = h_ * rhs(
             y + h_ * (R.b31*k1 + R.b32*k2), field_model, axes, config
         )
-        k4, _, _ = rhs(
+        k4 = h_ * rhs(
             y + h_ * (R.b41*k1 + R.b42*k2 + R.b43*k3),
             field_model, axes, config
         )
-        k5, _, _ = rhs(
+        k5 = h_ * rhs(
             y + h_ * (R.b51*k1 + R.b52*k2 + R.b53*k3 + R.b54*k4),
             field_model, axes, config
         )
-        k6, _, _ = rhs(
+        k6 = h_ * rhs(
             y + h_ * (R.b61*k1 + R.b62*k2 + R.b63*k3 + R.b64*k4 + R.b65*k5),
             field_model, axes, config
         )
                 
-        temp_y = y + h_ * (R.c1*k1 + R.c3*k3 + R.c4*k4 + R.c5*k5)
-        err = R.d1*k1 + R.d3*k3 + R.d4*k4 + R.d5*k5 + R.d6*k6
-        err = cp.linalg.norm(err, axis=1)        
-        scale = 0.9*(config.atol/err)**(1/5);
-        ymag = cp.linalg.norm(y, axis=1)
+        y_next = y + R.c1*k1 + R.c3*k3 + R.c4*k4 + R.c5*k5
+        z_next = y + R.d1*k1 + R.d3*k3 + R.d4*k4 + R.d5*k5 + R.d6*k6
+        err = cp.linalg.norm(y_next - z_next, axis=1)        
 
-        mask = (err < config.rtol * ymag) & (err < config.atol) & (t < t_final)
+        ymag = cp.linalg.norm(y, axis=1)
+        tolerance = config.rtol * ymag
+        scale = 0.84*(tolerance/err)**(1/4)
+        mask = (err < config.rtol * ymag) & (t < t_final)
 
         t[mask] += h[mask]
-        y[mask] = temp_y[mask]
+        y[mask] = y_next[mask]
         h = h * scale
         all_complete = cp.all(t >= t_final)
         iter_count += 1
 
-        print('Complete:', 100 * cp.sum(t >= t_final) /  t.size,'%')
-        #print(y[:, :3].get())
-        #print('.', end='')
+        print(y[0, :3])
+        #print(cp.mean(t / t_final), end=' ')
+        #print(f'Complete: {100 * cp.sum(t >= t_final) /  t.size}% (iter {iter_count})')
         sys.stdout.flush()
     
     print(f'Took {iter_count} iterations')
@@ -334,8 +335,6 @@ def rhs(y, field_model, axes, config):
     Returns
       dydt: cupy array (nparticles, 4). First three columns are position, fourth
         is parallel velocityn
-      B: redimensionalized magnetic field strength
-      W: redimensionalized energy
     """
     pos_x = y[:, 0]
     pos_y = y[:, 1]
@@ -450,7 +449,7 @@ def rhs(y, field_model, axes, config):
     # calculate energy
     W = gamma - 1
     
-    return dydt, B, W
+    return dydt
 
 
     

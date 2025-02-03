@@ -13,7 +13,7 @@ EARTH_DIPOLE_B0 = -30e3   # nT
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=5000)
+    config = libgputrace.TraceConfig(t_final=500)
     grid_spacing = 0.1 
     
     # Setup axes and grid
