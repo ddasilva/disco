@@ -14,7 +14,7 @@ EARTH_DIPOLE_B0 = -30e3   # nT
 def main():
     """Main method of the program."""
     config = libgputrace.TraceConfig(t_final=500)
-    grid_spacing = 0.1 
+    grid_spacing = 0.05 
     
     # Setup axes and grid
     x_axis = np.arange(-10, 10, grid_spacing) * units.R_earth
@@ -58,7 +58,7 @@ def main():
     Bx = Bx * units.nT
     By = By * units.nT
     Bz = Bz * units.nT
-    B *= units.nT
+    B = B * units.nT
     Ex = np.zeros(Bx.shape) * units.mV/units.m
     Ey = np.zeros(Bx.shape) * units.mV/units.m
     Ez = np.zeros(Bx.shape) * units.mV/units.m
@@ -66,38 +66,25 @@ def main():
     field_model = libgputrace.FieldModel.initialize(
         Bx, By, Bz, B, Ex, Ey, Ez, mass, charge,
     )
-    
-    # History of positions
-    #hist = libgputrace.ParticleHistory.initialize(config.max_iters, pos_x.size)
 
-    #print('Iterations:', config.max_iters)
-    
+    # Call the trace routine
     start_time = time.time()
-    libgputrace.trace_trajectory(config, particle_state, None, field_model, axes)
+    hist = libgputrace.trace_trajectory(config, particle_state, field_model, axes)
     end_time = time.time()
     
     print('time = ', end_time - start_time, 's')
-
-    # Collect history
-    hist_t = hist.t.get()
-    hist_x = hist.x.get()
-    hist_y = hist.y.get()
-    hist_z = hist.z.get()
-    hist_vpar = hist.vpar.get()
-    hist_B = hist.B.get()
-    hist_W = hist.W.get()
     
     # Write output for visualization
     d = {}
     
     for i in range(0, particle_state.x.size, 50):
-        d[f't{i}'] = hist_t[:, i]
-        d[f'x{i}'] = hist_x[:, i]
-        d[f'y{i}'] = hist_y[:, i]
-        d[f'z{i}'] = hist_z[:, i] 
-        d[f'vpar{i}'] = hist_vpar[:, i] 
-        d[f'B{i}'] = hist_B[:, i]
-        d[f'W{i}'] = hist_W[:, i]
+        d[f't{i}'] = hist.t[:, i]
+        d[f'x{i}'] = hist.x[:, i]
+        d[f'y{i}'] = hist.y[:, i]
+        d[f'z{i}'] = hist.z[:, i] 
+        d[f'vpar{i}'] = hist.vpar[:, i] 
+        d[f'B{i}'] = hist.B[:, i]
+        d[f'W{i}'] = hist.W[:, i]
         
     pd.DataFrame(d).to_csv('data/test_dipole.csv')
 

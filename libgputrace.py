@@ -16,7 +16,7 @@ class TraceConfig:
     h_initial: float = .1     # initial step size
     h_min = .01             # min step size
     h_max = 1000              # max step size
-    rtol: float = 1e-3        # relative tolerance
+    rtol: float = 1e-4        # relative tolerance
     grad_step: float = 5e-2   # finite diff delta step (half)
 
     
@@ -151,18 +151,6 @@ class ParticleHistory:
     vpar: Any
     B: Any      # local field strength
     W: Any      # energy
-    
-    @classmethod
-    def initialize(cls, size, num_particles):
-        t = cp.zeros((size, num_particles))
-        x = cp.zeros((size, num_particles))
-        y = cp.zeros((size, num_particles))
-        z = cp.zeros((size, num_particles))
-        vpar = cp.zeros((size, num_particles))
-        B = cp.zeros((size, num_particles))
-        W = cp.zeros((size, num_particles))
-
-        return ParticleHistory(t=t,  x=x, y=y, z=z, vpar=vpar, B=B, W=W)
         
         
 @dataclass
@@ -207,7 +195,7 @@ class RK45Coeffs:
     d6 = 2/55;
     
     
-def trace_trajectory(config, particle_state, hist, field_model, axes):
+def trace_trajectory(config, particle_state, field_model, axes):
     """Perform a euler integration particle trace.
     
     Works on a rectilinear grid.
@@ -215,9 +203,10 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
     Args
       config: instance of libgputrace.TraceConfig
       particle_state: instance of libgputrace.ParticleState
-      hist: instance of libgputrace.ParticleHistory
       field_model: instance of libgputrace.FieldModel
       axes: instance of libgputrace.Axes
+    Returns  
+      hist: instance of libgputrace.ParticleHistory
     """
     if not axes._dimensionalized:
         raise ValueError(
@@ -241,18 +230,24 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
     y[:, 2] = particle_state.z
     y[:, 3] = particle_state.vpar
     y[:, 4] = particle_state.magnetic_moment
+
     h = cp.ones(particle_state.x.size) * config.h_initial
     h_min = cp.ones(particle_state.x.size) * config.h_min
     h_max = cp.ones(particle_state.x.size) * config.h_max
+
     t_final = redim_time(config.t_final)
     all_complete = False
     R = RK45Coeffs
     iter_count = 0
+
+    hist_y = []
+    hist_t = []
+    hist_W = []
+    hist_B = []
     
     while not all_complete:
         h = cp.minimum(h_max, cp.maximum(h, h_min))
-        h = cp.minimum(h, t_final - h)
-        h_ = cp.zeros((h.size, 5))               # cupy broadcasting workaround
+        h_ = cp.zeros((h.size, 5))             # cupy broadcasting workaround
         for i in range(5):
             h_[:, i] = h
 
@@ -289,39 +284,36 @@ def trace_trajectory(config, particle_state, hist, field_model, axes):
         all_complete = cp.all(t >= t_final)
         iter_count += 1
 
-        print(y[0, :3])
-        #print(cp.mean(t / t_final), end=' ')
-        #print(f'Complete: {100 * cp.sum(t >= t_final) /  t.size}% (iter {iter_count})')
+        # Save incremented particles to history
+        tmp_B, _ = interp_field(field_model.B, y[:, 0], y[:, 1], y[:, 2], axes)
+        tmp_gamma = cp.sqrt(1 + 2 * tmp_B * y[:, 4] + y[:, 3]**2)
+        tmp_W = tmp_gamma - 1
+        
+        hist_t.append(t.copy())
+        hist_y.append(y.copy())
+        hist_B.append(tmp_B.copy())
+        hist_W.append(tmp_W.copy())
+        
+        # Write progress to terminal
+        print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count})')
         sys.stdout.flush()
     
     print(f'Took {iter_count} iterations')
-        #print(y[:, :3])
-        #print('.', end='')
-        #sys.stdout.flush()
-        
-    # for i in range(config.max_iters):
-    #     dydt, B, W = rhs(particle_state, field_model, axes, config)
 
-    #     t += dt
-    #     particle_state.x += dt * dydt[:, 0]
-    #     particle_state.y += dt * dydt[:, 1]
-    #     particle_state.z += dt * dydt[:, 2]
-    #     particle_state.vpar += dt * dydt[:, 3]
-
-    #     # Record history of positions
-    #     hist.x[i, :] = particle_state.x 
-    #     hist.x[i, :] = particle_state.x
-    #     hist.y[i, :] = particle_state.y
-    #     hist.z[i, :] = particle_state.z
-    #     hist.vpar[i, :] = particle_state.vpar
-    #     hist.B[i, :] = B
-    #     hist.W[i, :] = W
-    #     hist.t[i, :] = t
-        
-    #     print('.', end='')
-    #     sys.stdout.flush()
-
-    print()
+    # Prepare history object and return instance of ParticleHistory
+    hist_t = cp.array(hist_t).get()
+    hist_B = cp.array(hist_B).get()
+    hist_W = cp.array(hist_W).get()
+    hist_y = cp.array(hist_y).get()
+    hist_pos_x = hist_y[:, :, 0]
+    hist_pos_y = hist_y[:, :, 1]
+    hist_pos_z = hist_y[:, :, 2]
+    hist_vpar = hist_y[:, :, 3]
+    
+    return ParticleHistory(
+        t=hist_t, x=hist_pos_x, y=hist_pos_y, z=hist_pos_z,
+        vpar=hist_vpar, B=hist_B, W=hist_W
+    )
 
 
 def rhs(y, field_model, axes, config):
@@ -501,28 +493,54 @@ def interp_field_kernel(
 ):
     """[CUPY KERNEL] Interpolate field using neighbors.
     
-    Uses inverse distance weighted average. This kernel operates
-    on one position per thread.
+    Uses trilinear interpolation.
     """
+    # Note to self: tried weighted sum of nearest neighbors
+    # where weight was inverse difference, but result was
+    # less smooth
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
     
     if idx < arr_size:    
-        w_accum = 0.0
+        x0_idx = field_i[idx]
+        x1_idx = field_i[idx] + 1
+        y0_idx = field_j[idx]
+        y1_idx = field_j[idx] + 1
+        z0_idx = field_k[idx]
+        z1_idx = field_k[idx] + 1
+        
+        # Get the corner points
+        x0 = x_axis[x0_idx]
+        x1 = x_axis[x1_idx]
+        y0 = y_axis[y0_idx]
+        y1 = y_axis[y1_idx]
+        z0 = z_axis[z0_idx]
+        z1 = z_axis[z1_idx]
     
-        for di in range(2):
-            for dj in range(2):
-                for dk in range(2):
-                    dist_x = x_axis[field_i[idx] + di] - pos_x[idx]
-                    dist_y = y_axis[field_j[idx] + dj] - pos_y[idx]
-                    dist_z = z_axis[field_k[idx] + dk] - pos_z[idx]
-                    
-                    w = 1 / cp.sqrt(dist_x**2 + dist_y**2 + dist_z**2)                
-                    f = field[field_i[idx] + di, field_j[idx] + dj, field_k[idx] + dk]
-                    
-                    result[idx] += w * f
-                    w_accum += w
-    
-        result[idx] /= w_accum
+        # Get the values at the corner points
+        C000 = field[x0_idx, y0_idx, z0_idx]
+        C100 = field[x1_idx, y0_idx, z0_idx]
+        C010 = field[x0_idx, y1_idx, z0_idx]
+        C110 = field[x1_idx, y1_idx, z0_idx]
+        C001 = field[x0_idx, y0_idx, z1_idx]
+        C101 = field[x1_idx, y0_idx, z1_idx]
+        C011 = field[x0_idx, y1_idx, z1_idx]
+        C111 = field[x1_idx, y1_idx, z1_idx]
+        
+        # Compute interpolation weights
+        xd = (pos_x[idx] - x0) / (x1 - x0)
+        yd = (pos_y[idx] - y0) / (y1 - y0)
+        zd = (pos_z[idx] - z0) / (z1 - z0)
+        
+        # Trilinear interpolation formula
+        C00 = C000 * (1 - xd) + C100 * xd
+        C01 = C001 * (1 - xd) + C101 * xd
+        C10 = C010 * (1 - xd) + C110 * xd
+        C11 = C011 * (1 - xd) + C111 * xd
+        
+        C0 = C00 * (1 - yd) + C10 * yd
+        C1 = C01 * (1 - yd) + C11 * yd
+        
+        result[idx] = C0 * (1 - zd) + C1 * zd
 
 
 def redim_time(val):
@@ -533,8 +551,6 @@ def redim_time(val):
     Returns
       value in redimensionalized units
     """
+    sf = constants.c / constants.R_earth
+    return (sf * val * units.s).to(1).value
 
-    return (
-        (constants.c * val * units.s / constants.R_earth)
-        .to(1).value
-    )
