@@ -151,7 +151,8 @@ class ParticleHistory:
     vpar: Any
     B: Any      # local field strength
     W: Any      # energy
-        
+    h: Any      # step size
+
         
 @dataclass
 class Neighbors:
@@ -244,6 +245,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
     hist_t = []
     hist_W = []
     hist_B = []
+    hist_h = []
     
     while not all_complete:
         h = cp.minimum(h_max, cp.maximum(h, h_min))
@@ -293,6 +295,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
         hist_y.append(y.copy())
         hist_B.append(tmp_B.copy())
         hist_W.append(tmp_W.copy())
+        hist_h.append(h.copy())
         
         # Write progress to terminal
         print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count})')
@@ -304,6 +307,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
     hist_t = cp.array(hist_t).get()
     hist_B = cp.array(hist_B).get()
     hist_W = cp.array(hist_W).get()
+    hist_h = cp.array(hist_h).get()
     hist_y = cp.array(hist_y).get()
     hist_pos_x = hist_y[:, :, 0]
     hist_pos_y = hist_y[:, :, 1]
@@ -312,7 +316,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
     
     return ParticleHistory(
         t=hist_t, x=hist_pos_x, y=hist_pos_y, z=hist_pos_z,
-        vpar=hist_vpar, B=hist_B, W=hist_W
+        vpar=hist_vpar, B=hist_B, W=hist_W, h=hist_h,
     )
 
 

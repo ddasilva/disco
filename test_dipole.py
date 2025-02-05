@@ -85,8 +85,9 @@ def main():
         d[f'vpar{i}'] = hist.vpar[:, i] 
         d[f'B{i}'] = hist.B[:, i]
         d[f'W{i}'] = hist.W[:, i]
+        d[f'h{i}'] = hist.h[:, i]
         
-    pd.DataFrame(d).to_csv('data/test_dipole.csv')
+        pd.DataFrame(d).to_csv('data/test_dipole.csv')
 
 
 if __name__ == '__main__':
