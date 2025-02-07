@@ -13,8 +13,8 @@ EARTH_DIPOLE_B0 = -30e3   # nT
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=500)
-    grid_spacing = 0.05 
+    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-5, h_min=1e-10, rtol=1e-4)
+    grid_spacing = 0.1
     
     # Setup axes and grid
     x_axis = np.arange(-10, 10, grid_spacing) * units.R_earth
@@ -30,16 +30,26 @@ def main():
     print('Grid Shape:', x_grid.shape)
     
     # Instantiate particle state and parallel velocity
-    pos_x = np.arange(3, 8, .01) * constants.R_earth
+    pos_x = np.array([6.6]) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
-    vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
-    magnetic_moment = np.ones(pos_x.shape) * 1e-36 * 1e9 * units.A * constants.R_earth**2
+    #vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
+    #magnetic_moment = np.ones(pos_x.shape) * 1e-36 * 1e9 * units.A * constants.R_earth**2
+
+    vtotal = 0.99 * constants.c
+    pitch_angle = 45
+    gamma = 1 / np.sqrt(1 - (vtotal/constants.c)**2)
+    pperp = np.ones(pos_x.shape) * gamma * constants.m_e * np.sin(np.deg2rad(pitch_angle)) * vtotal
+    ppar = np.ones(pos_x.shape) * gamma * constants.m_e * np.cos(np.deg2rad(pitch_angle)) * vtotal
+    magnetic_moment = gamma * pperp**2 / (2 * constants.m_e * 100 * units.nT)
+
+    print(f'ppar={ppar.to(constants.m_e * constants.c).value} m_e * c')
+    print(f'M={magnetic_moment.to(units.MeV/units.Gauss)}')
     charge = - elementary_charge * units.C
     mass = constants.m_e
     particle_state = libgputrace.ParticleState.initialize(
         pos_x, pos_y, pos_z, 
-        vpar, magnetic_moment, mass, charge
+        ppar, magnetic_moment, mass, charge
     )
     
     print('Number of particles:', pos_x.size)
@@ -72,7 +82,7 @@ def main():
     hist = libgputrace.trace_trajectory(config, particle_state, field_model, axes)
     end_time = time.time()
     
-    print('time = ', end_time - start_time, 's')
+    print('took ', end_time - start_time, 's')
     
     # Write output for visualization
     d = {}
@@ -82,7 +92,7 @@ def main():
         d[f'x{i}'] = hist.x[:, i]
         d[f'y{i}'] = hist.y[:, i]
         d[f'z{i}'] = hist.z[:, i] 
-        d[f'vpar{i}'] = hist.vpar[:, i] 
+        d[f'ppar{i}'] = hist.ppar[:, i] 
         d[f'B{i}'] = hist.B[:, i]
         d[f'W{i}'] = hist.W[:, i]
         d[f'h{i}'] = hist.h[:, i]

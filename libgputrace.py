@@ -14,8 +14,8 @@ class TraceConfig:
     """Configuration for running the tracing code"""
     t_final: float            # end time of integration
     h_initial: float = .1     # initial step size
-    h_min = .01             # min step size
-    h_max = 1000              # max step size
+    h_min: float = .01             # min step size
+    h_max: float = 1000              # max step size
     rtol: float = 1e-4        # relative tolerance
     grad_step: float = 5e-2   # finite diff delta step (half)
 
@@ -52,7 +52,7 @@ class FieldModel:
         Re = constants.R_earth
         c = constants.c
         sf = (q * Re / (mass * c**2))
-        B_units = units.s / units.km
+        B_units = units.s / Re
         
         gpu_Bx = cp.array((sf * Bx).to(B_units).value)
         gpu_By = cp.array((sf * By).to(B_units).value)
@@ -77,7 +77,7 @@ class ParticleState:
     x: Any                    # x position
     y: Any                    # y position
     z: Any                    # z position
-    vpar: Any                 # parallel velocity
+    ppar: Any                 # parallel momentum
 
     # these *don't* vary in time
     magnetic_moment: Any      # first invariant
@@ -86,7 +86,7 @@ class ParticleState:
     _dimensionalized: bool
 
     @classmethod
-    def initialize(cls, x, y, z, vpar, magnetic_moment, mass, charge):
+    def initialize(cls, x, y, z, ppar, magnetic_moment, mass, charge):
         """Get a ParticleState() instance that is dimensionalized 
         and stored on the GPU.
         
@@ -102,14 +102,14 @@ class ParticleState:
         gpu_x = cp.array((x / Re).to(1).value)
         gpu_y = cp.array((y / Re).to(1).value)
         gpu_z = cp.array((z / Re).to(1).value)
-        gpu_vpar = cp.array((vpar / c).to(1).value)
+        gpu_ppar = cp.array((ppar / (c * mass)).to(1).value)
         gpu_magnetic_moment = cp.array(
-            (magnetic_moment / (q * Re)).to(units.km/units.s).value
+            (magnetic_moment / (q * Re)).to(Re/units.s).value
         )
         gpu_mass = cp.array(mass.to(units.kg).value)
         
         return ParticleState(
-            x=gpu_x, y=gpu_y, z=gpu_z, vpar=gpu_vpar,
+            x=gpu_x, y=gpu_y, z=gpu_z, ppar=gpu_ppar,
             magnetic_moment=gpu_magnetic_moment, mass=gpu_mass,
             _dimensionalized=True        
         )
@@ -141,14 +141,13 @@ class Axes:
     
 @dataclass
 class ParticleHistory:
-    """History of positions, velocity, and ambient field 
-    strength (to calculate vperp).
+    """History of positions, parallel momentum, and useful values..
     """
     t: Any
     x: Any
     y: Any
     z: Any
-    vpar: Any
+    ppar: Any
     B: Any      # local field strength
     W: Any      # energy
     h: Any      # step size
@@ -229,7 +228,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
     y[:, 0] = particle_state.x
     y[:, 1] = particle_state.y
     y[:, 2] = particle_state.z
-    y[:, 3] = particle_state.vpar
+    y[:, 3] = particle_state.ppar
     y[:, 4] = particle_state.magnetic_moment
 
     h = cp.ones(particle_state.x.size) * config.h_initial
@@ -279,7 +278,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
         tolerance = config.rtol * ymag
         scale = 0.84*(tolerance/err)**(1/4)
         mask = (err < config.rtol * ymag) & (t < t_final)
-
+        
         t[mask] += h[mask]
         y[mask] = y_next[mask]
         h = h * scale
@@ -296,10 +295,14 @@ def trace_trajectory(config, particle_state, field_model, axes):
         hist_B.append(tmp_B.copy())
         hist_W.append(tmp_W.copy())
         hist_h.append(h.copy())
-        
+
+        dydt = rhs(y, field_model, axes, config)
+        print('y=',y[-1].tolist())
+        print('dydt=',dydt[-1].tolist())
         # Write progress to terminal
-        print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count})')
+        print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count}, {mask.sum()} iterated, h mean {h.mean():.1E}, r={np.linalg.norm(y[-1, :3]):1f} Re)')
         sys.stdout.flush()
+
     
     print(f'Took {iter_count} iterations')
 
@@ -312,11 +315,11 @@ def trace_trajectory(config, particle_state, field_model, axes):
     hist_pos_x = hist_y[:, :, 0]
     hist_pos_y = hist_y[:, :, 1]
     hist_pos_z = hist_y[:, :, 2]
-    hist_vpar = hist_y[:, :, 3]
+    hist_ppar = hist_y[:, :, 3]
     
     return ParticleHistory(
         t=hist_t, x=hist_pos_x, y=hist_pos_y, z=hist_pos_z,
-        vpar=hist_vpar, B=hist_B, W=hist_W, h=hist_h,
+        ppar=hist_ppar, B=hist_B, W=hist_W, h=hist_h,
     )
 
 
@@ -330,13 +333,13 @@ def rhs(y, field_model, axes, config):
       config: instance of Config (tracing configuration)
     Returns
       dydt: cupy array (nparticles, 4). First three columns are position, fourth
-        is parallel velocityn
+        is parallel momentum
     """
     pos_x = y[:, 0]
     pos_y = y[:, 1]
     pos_z = y[:, 2]            
-    vpar = y[:, 3]
-    M = y[:, 4]
+    ppar  = y[:, 3]
+    M     = y[:, 4]
  
     # Get B and E at particleposition
     Bx, neighbors = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes)
@@ -363,10 +366,10 @@ def rhs(y, field_model, axes, config):
         - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
     ) / (2 * eps)
         
-    # dBxdx = (
-    #     interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=eps)[0]
-    #     - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
-    # ) / (2 * eps)
+    dBxdx = (
+        interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=eps)[0]
+        - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
+    ) / (2 * eps)
     dBxdy = (
         interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=eps)[0]
         - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
@@ -381,10 +384,10 @@ def rhs(y, field_model, axes, config):
         interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=eps)[0]
         - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
     ) / (2 * eps)
-    # dBydy = (
-    #     interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=eps)[0]
-    #     - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
-    # ) / (2 * eps)
+    dBydy = (
+        interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=eps)[0]
+         - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
+     ) / (2 * eps)
     dBydz = (
         interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=eps)[0]
         - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
@@ -398,34 +401,33 @@ def rhs(y, field_model, axes, config):
         interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=eps)[0]
         - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
     ) / (2 * eps)
-    # dBzdz = (
-    #     interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=eps)[0]
-    #     - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
-    # ) / (2 * eps)
+    dBzdz = (
+        interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=eps)[0]
+        - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
+    ) / (2 * eps)
 
     # gyro-averaged equations of motion developed by Brizzard and Chan (Phys.
     # Plasmas 6, 4553, 1999),
-    
-    gamma = cp.sqrt(1 + 2 * B * M + vpar**2)
-    pparl_B = vpar / B
+    gamma = cp.sqrt(1 + 2 * B * M + ppar**2)
+    pparl_B = ppar / B
     pparl_B2 = pparl_B / B
     Bxstar = Bx + pparl_B * (dBzdy - dBydz) - pparl_B2 * (Bz * dBdy - By * dBdz)
     Bystar = By + pparl_B * (dBxdz - dBzdx) - pparl_B2 * (Bx * dBdz - Bz * dBdx)
     Bzstar = Bz + pparl_B * (dBydx - dBxdy) - pparl_B2 * (By * dBdx - Bx * dBdy)
     Bsparl = (Bx * Bxstar + By * Bystar + Bz * Bzstar) / B
-    gamma_Bsparl=1 / gamma / Bsparl
-    pparl_gamma_Bsparl= vpar * gamma_Bsparl
+    gamma_Bsparl = 1 / (gamma * Bsparl)
+    pparl_gamma_Bsparl = ppar * gamma_Bsparl
     B_Bsparl = 1/ (B * Bsparl)
     M_gamma_Bsparl = M * gamma_Bsparl
     M_gamma_B_Bsparl = M_gamma_Bsparl / B
-
+    
     # 	  ...now calculate dynamic quantities...
     dydt = cp.zeros((pos_x.size, 5))
     
     dydt[:, 0] = (
-        pparl_gamma_Bsparl *Bxstar                     # curv drft + parl
-        +M_gamma_B_Bsparl * (By * dBdz - Bz * dBdy)    # gradB drft
-     	+B_Bsparl * (Ey * Bz - Ez * By)		       # ExB drft
+        pparl_gamma_Bsparl * Bxstar                    # curv drft + parl
+        + M_gamma_B_Bsparl * (By * dBdz - Bz * dBdy)   # gradB drft
+     	+ B_Bsparl * (Ey * Bz - Ez * By)	       # ExB drft
     )
     dydt[:, 1] = (
         pparl_gamma_Bsparl * Bystar	               # curv drft + parl
@@ -434,19 +436,15 @@ def rhs(y, field_model, axes, config):
     )
     dydt[:, 2] = (
         pparl_gamma_Bsparl * Bzstar		       # curv drft + parl
-     	+M_gamma_B_Bsparl*(Bx*dBdy-By*dBdx)            # gradB drft
-     	+B_Bsparl*(Ex*By-Ey*Bx)		               # ExB drft
+     	+ M_gamma_B_Bsparl * (Bx * dBdy - By * dBdx)   # gradB drft
+     	+ B_Bsparl * (Ex * By - Ey * Bx)		       # ExB drft
     )
     dydt[:, 3] = (
         (Bxstar * Ex + Bystar * Ey + Bzstar * Ez) / Bsparl   # parl force
-        - M_gamma_Bsparl * (Bxstar * dBdx+Bystar * dBdy + Bzstar * dBdz)
+        - M_gamma_Bsparl * (Bxstar * dBdx + Bystar * dBdy + Bzstar * dBdz)
     )
-
-    # calculate energy
-    W = gamma - 1
     
     return dydt
-
 
     
 def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None, dx=0, dy=0, dz=0):
