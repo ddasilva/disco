@@ -13,7 +13,7 @@ EARTH_DIPOLE_B0 = -30e3   # nT
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-5, h_min=1e-10, rtol=1e-4)
+    config = libgputrace.TraceConfig(t_final=.1, h_initial=1e-5, h_min=1e-10, rtol=1e-3)
     grid_spacing = 0.1
     
     # Setup axes and grid
@@ -30,14 +30,15 @@ def main():
     print('Grid Shape:', x_grid.shape)
     
     # Instantiate particle state and parallel velocity
-    pos_x = np.array([6.6]) * constants.R_earth
+    #pos_x = np.array([6.6]) * constants.R_earth
+    pos_x = np.linspace(6, 9, 1_000_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
     #vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
     #magnetic_moment = np.ones(pos_x.shape) * 1e-36 * 1e9 * units.A * constants.R_earth**2
 
-    vtotal = 0.99 * constants.c
-    pitch_angle = 45
+    vtotal = 0.5 * constants.c
+    pitch_angle = 15
     gamma = 1 / np.sqrt(1 - (vtotal/constants.c)**2)
     pperp = np.ones(pos_x.shape) * gamma * constants.m_e * np.sin(np.deg2rad(pitch_angle)) * vtotal
     ppar = np.ones(pos_x.shape) * gamma * constants.m_e * np.cos(np.deg2rad(pitch_angle)) * vtotal

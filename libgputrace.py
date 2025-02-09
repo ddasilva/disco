@@ -297,10 +297,11 @@ def trace_trajectory(config, particle_state, field_model, axes):
         hist_h.append(h.copy())
 
         dydt = rhs(y, field_model, axes, config)
-        print('y=',y[-1].tolist())
-        print('dydt=',dydt[-1].tolist())
+        #print('y=',y[-1].tolist())
+        #print('dydt=',dydt[-1].tolist())
         # Write progress to terminal
-        print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count}, {mask.sum()} iterated, h mean {h.mean():.1E}, r={np.linalg.norm(y[-1, :3]):1f} Re)')
+        print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count}, {mask.sum()} iterated, h mean {h.mean():.1E})')
+        #print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count}, {mask.sum()} iterated, h mean {h.mean():.1E}, r={np.linalg.norm(y[-1, :3]):1f} Re)')
         sys.stdout.flush()
 
     
