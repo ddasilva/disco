@@ -337,7 +337,7 @@ def rhs(y, field_model, axes, config):
     pos_y = y[:, 1]
     pos_z = y[:, 2]            
  
-    # Get B and E at particleposition
+    # Get B and E at particle position
     Bx, neighbors = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes)
     By, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
     Bz, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
@@ -347,60 +347,48 @@ def rhs(y, field_model, axes, config):
     Ez, _ = interp_field(field_model.Ez, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
     
     # Get derivatives from finite difference
+    # --------------------------------
     eps = config.grad_step
     
-    dBdx = (
-        interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=eps)[0]
-        - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
-    ) / (2 * eps)
-    dBdy = (
-        interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=eps)[0]
-        - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
-    ) / (2 * eps)
-    dBdz = (
-        interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=eps)[0]
-        - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
-    ) / (2 * eps)
-        
-    # dBxdx = (
-    #     interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=eps)[0]
-    #     - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
-    # ) / (2 * eps)
-    dBxdy = (
-        interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=eps)[0]
-        - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
-    ) / (2 * eps)
-    dBxdz = (
-        interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=eps)[0]
-        - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
-    ) / (2 * eps)
+    # in |B| magnitude
+    dBdx_forw, dx_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=eps)
+    dBdx_back, dx_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=-eps)
+    dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
 
+    dBdy_forw, dy_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=eps)
+    dBdy_back, dy_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=-eps)
+    dBdy = (dBdy_forw - dBdy_back) / (2 * eps)
+    
+    dBdz_forw, dz_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=eps)
+    dBdz_back, dz_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=-eps)
+    dBdz = (dBdz_forw - dBdz_back) / (2 * eps)
 
-    dBydx = (
-        interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=eps)[0]
-        - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
-    ) / (2 * eps)
-    # dBydy = (
-    #     interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=eps)[0]
-    #      - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
-    #  ) / (2 * eps)
-    dBydz = (
-        interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=eps)[0]
-        - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
-    ) / (2 * eps)
+    # in Bx
+    dBxdy_forw, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=eps, neighbors=dy_forw_neighbors)
+    dBxdy_back, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=-eps, neighbors=dy_back_neighbors)
+    dBxdy = (dBxdy_forw - dBxdy_back) / (2 * eps)
 
-    dBzdx = (
-        interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=eps)[0]
-        - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
-    ) / (2 * eps)
-    dBzdy = (
-        interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=eps)[0]
-        - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
-    ) / (2 * eps)
-    # dBzdz = (
-    #     interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=eps)[0]
-    #     - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
-    # ) / (2 * eps)
+    dBxdz_forw, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=eps, neighbors=dz_forw_neighbors)
+    dBxdz_back, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=-eps, neighbors=dz_back_neighbors)
+    dBxdz = (dBxdz_forw - dBxdz_back) / (2 * eps)
+    
+    # in By
+    dBydx_forw, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=eps, neighbors=dx_forw_neighbors)
+    dBydx_back, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=-eps, neighbors=dx_back_neighbors)
+    dBydx = (dBydx_forw - dBydx_back) / (2 * eps)
+    
+    dBydz_forw, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=eps, neighbors=dz_forw_neighbors)
+    dBydz_back, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=-eps, neighbors=dz_back_neighbors)
+    dBydz = (dBydz_forw - dBydz_back) / (2 * eps)
+
+    # in Bz
+    dBzdx_forw, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=eps, neighbors=dx_forw_neighbors)
+    dBzdx_back, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=-eps, neighbors=dx_back_neighbors)
+    dBzdx = (dBzdx_forw - dBzdx_back) / (2 * eps)
+    
+    dBzdy_forw, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=eps, neighbors=dy_forw_neighbors)
+    dBzdy_back, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=-eps, neighbors=dy_back_neighbors)
+    dBzdy = (dBzdy_forw - dBzdy_back) / (2 * eps)
 
     # Launch Kernel to handle rest of RHS
     # -----------------------------
