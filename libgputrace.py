@@ -5,9 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 from astropy import constants, units
-from scipy.constants import elementary_charge
-import numpy as np
-
+from line_profiler import profile
 
 @dataclass
 class TraceConfig:
@@ -194,7 +192,8 @@ class RK45Coeffs:
     d5 = 0.02;
     d6 = 2/55;
     
-    
+
+@profile
 def trace_trajectory(config, particle_state, field_model, axes):
     """Perform a euler integration particle trace.
     
@@ -278,8 +277,10 @@ def trace_trajectory(config, particle_state, field_model, axes):
         tolerance = config.rtol * ymag
         scale = 0.84*(tolerance/err)**(1/4)
         mask = (err < config.rtol * ymag) & (t < t_final)
-        
-        t[mask] += h[mask]
+
+        dt = h.copy()
+        dt[~mask] = 0        
+        t += dt
         y[mask] = y_next[mask]
         h = h * scale
         all_complete = cp.all(t >= t_final)
@@ -296,12 +297,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
         hist_W.append(tmp_W.copy())
         hist_h.append(h.copy())
 
-        dydt = rhs(y, field_model, axes, config)
-        #print('y=',y[-1].tolist())
-        #print('dydt=',dydt[-1].tolist())
-        # Write progress to terminal
         print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count}, {mask.sum()} iterated, h mean {h.mean():.1E})')
-        #print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% (iter {iter_count}, {mask.sum()} iterated, h mean {h.mean():.1E}, r={np.linalg.norm(y[-1, :3]):1f} Re)')
         sys.stdout.flush()
 
     
@@ -324,6 +320,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
     )
 
 
+@profile
 def rhs(y, field_model, axes, config):
     """RIght hand side of the guiding center equation differential equation.
 
@@ -339,8 +336,6 @@ def rhs(y, field_model, axes, config):
     pos_x = y[:, 0]
     pos_y = y[:, 1]
     pos_z = y[:, 2]            
-    ppar  = y[:, 3]
-    M     = y[:, 4]
  
     # Get B and E at particleposition
     Bx, neighbors = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes)
@@ -367,10 +362,10 @@ def rhs(y, field_model, axes, config):
         - interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
     ) / (2 * eps)
         
-    dBxdx = (
-        interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=eps)[0]
-        - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
-    ) / (2 * eps)
+    # dBxdx = (
+    #     interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=eps)[0]
+    #     - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
+    # ) / (2 * eps)
     dBxdy = (
         interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=eps)[0]
         - interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
@@ -385,10 +380,10 @@ def rhs(y, field_model, axes, config):
         interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=eps)[0]
         - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=-eps)[0]
     ) / (2 * eps)
-    dBydy = (
-        interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=eps)[0]
-         - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
-     ) / (2 * eps)
+    # dBydy = (
+    #     interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=eps)[0]
+    #      - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
+    #  ) / (2 * eps)
     dBydz = (
         interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=eps)[0]
         - interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
@@ -402,52 +397,31 @@ def rhs(y, field_model, axes, config):
         interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=eps)[0]
         - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=-eps)[0]
     ) / (2 * eps)
-    dBzdz = (
-        interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=eps)[0]
-        - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
-    ) / (2 * eps)
+    # dBzdz = (
+    #     interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=eps)[0]
+    #     - interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dz=-eps)[0]
+    # ) / (2 * eps)
 
-    # gyro-averaged equations of motion developed by Brizzard and Chan (Phys.
-    # Plasmas 6, 4553, 1999),
-    gamma = cp.sqrt(1 + 2 * B * M + ppar**2)
-    pparl_B = ppar / B
-    pparl_B2 = pparl_B / B
-    Bxstar = Bx + pparl_B * (dBzdy - dBydz) - pparl_B2 * (Bz * dBdy - By * dBdz)
-    Bystar = By + pparl_B * (dBxdz - dBzdx) - pparl_B2 * (Bx * dBdz - Bz * dBdx)
-    Bzstar = Bz + pparl_B * (dBydx - dBxdy) - pparl_B2 * (By * dBdx - Bx * dBdy)
-    Bsparl = (Bx * Bxstar + By * Bystar + Bz * Bzstar) / B
-    gamma_Bsparl = 1 / (gamma * Bsparl)
-    pparl_gamma_Bsparl = ppar * gamma_Bsparl
-    B_Bsparl = 1/ (B * Bsparl)
-    M_gamma_Bsparl = M * gamma_Bsparl
-    M_gamma_B_Bsparl = M_gamma_Bsparl / B
-    
-    # 	  ...now calculate dynamic quantities...
+    # Launch Kernel to handle rest of RHS
+    # -----------------------------
+    arr_size = pos_x.size
+    block_size = 512
+    grid_size = int(math.ceil(arr_size / block_size))
+
     dydt = cp.zeros((pos_x.size, 5))
     
-    dydt[:, 0] = (
-        pparl_gamma_Bsparl * Bxstar                    # curv drft + parl
-        + M_gamma_B_Bsparl * (By * dBdz - Bz * dBdy)   # gradB drft
-     	+ B_Bsparl * (Ey * Bz - Ez * By)	       # ExB drft
+    rhs_kernel[grid_size, block_size](
+        arr_size, y, dydt, 
+        Bx, By, Bz, B,
+        Ex, Ey, Ez,
+        dBdx, dBdy, dBdz,
+        dBxdy, dBxdz, dBydx, dBydz, dBzdx, dBzdy,
     )
-    dydt[:, 1] = (
-        pparl_gamma_Bsparl * Bystar	               # curv drft + parl
-     	+ M_gamma_B_Bsparl * (Bz * dBdx - Bx * dBdz)   # gradB drft
-     	+ B_Bsparl * (Ez * Bx - Ex * Bz)               # ExB drft
-    )
-    dydt[:, 2] = (
-        pparl_gamma_Bsparl * Bzstar		       # curv drft + parl
-     	+ M_gamma_B_Bsparl * (Bx * dBdy - By * dBdx)   # gradB drft
-     	+ B_Bsparl * (Ex * By - Ey * Bx)		       # ExB drft
-    )
-    dydt[:, 3] = (
-        (Bxstar * Ex + Bystar * Ey + Bzstar * Ez) / Bsparl   # parl force
-        - M_gamma_Bsparl * (Bxstar * dBdx + Bystar * dBdy + Bzstar * dBdz)
-    )
-    
+
     return dydt
 
-    
+
+
 def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None, dx=0, dy=0, dz=0):
     """Interpolate a 3D gridded field at given positions.
 
@@ -485,7 +459,86 @@ def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None, dx=0, dy=0, d
     )
 
     return result, neighbors
+
+
+@jit.rawkernel()
+def rhs_kernel(
+        arr_size, y, dydt_arr, 
+        Bx_arr, By_arr, Bz_arr, B_arr,
+        Ex_arr, Ey_arr, Ez_arr,
+        dBdx_arr, dBdy_arr, dBdz_arr,
+        dBxdy_arr, dBxdz_arr, dBydx_arr, dBydz_arr, dBzdx_arr, dBzdy_arr,
+):
+    """[CUPY KERNEL] implements RHS of oDE. 
+
+    Uses gyro-averaged equations of motion developed by Brizzard and Chan (Phys.
+    Plasmas 6, 4553, 1999),
+
+    Writes output to dydt[idx, :]
+    """
+    idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+
+    if idx < arr_size:    
+        # Pull variables out of arrays
+        ppar  = y[idx, 3]
+        M     = y[idx, 4]
+
+        Bx = Bx_arr[idx]
+        By = By_arr[idx]
+        Bz = Bz_arr[idx]
+        B  = B_arr[idx]
+
+        Ex = Ex_arr[idx]
+        Ey = Ey_arr[idx]
+        Ez = Ez_arr[idx]
+
+        dBdx = dBdx_arr[idx]
+        dBdy = dBdy_arr[idx]
+        dBdz = dBdz_arr[idx]
     
+        dBxdy = dBxdy_arr[idx]
+        dBxdz = dBxdz_arr[idx]
+        dBydx = dBydx_arr[idx]
+        dBydz = dBydz_arr[idx]
+        dBzdx = dBzdx_arr[idx]
+        dBzdy = dBzdy_arr[idx]
+        
+        # gyro-averaged equations of motion developed by Brizzard and Chan (Phys.
+        # Plasmas 6, 4553, 1999),
+        gamma = cp.sqrt(1 + 2 * B * M + ppar**2)
+        pparl_B = ppar / B
+        pparl_B2 = pparl_B / B
+        Bxstar = Bx + pparl_B * (dBzdy - dBydz) - pparl_B2 * (Bz * dBdy - By * dBdz)
+        Bystar = By + pparl_B * (dBxdz - dBzdx) - pparl_B2 * (Bx * dBdz - Bz * dBdx)
+        Bzstar = Bz + pparl_B * (dBydx - dBxdy) - pparl_B2 * (By * dBdx - Bx * dBdy)
+        Bsparl = (Bx * Bxstar + By * Bystar + Bz * Bzstar) / B
+        gamma_Bsparl = 1 / (gamma * Bsparl)
+        pparl_gamma_Bsparl = ppar * gamma_Bsparl
+        B_Bsparl = 1/ (B * Bsparl)
+        M_gamma_Bsparl = M * gamma_Bsparl
+        M_gamma_B_Bsparl = M_gamma_Bsparl / B
+        
+        # 	  ...now calculate dynamic quantities...
+        dydt_arr[idx, 0] = (
+            pparl_gamma_Bsparl * Bxstar                    # curv drft + parl
+            + M_gamma_B_Bsparl * (By * dBdz - Bz * dBdy)   # gradB drft
+     	    + B_Bsparl * (Ey * Bz - Ez * By)	           # ExB drft
+        )
+        dydt_arr[idx, 1] = (
+            pparl_gamma_Bsparl * Bystar	                   # curv drft + parl
+     	    + M_gamma_B_Bsparl * (Bz * dBdx - Bx * dBdz)   # gradB drft
+     	    + B_Bsparl * (Ez * Bx - Ex * Bz)               # ExB drft
+        )
+        dydt_arr[idx, 2] = (
+            pparl_gamma_Bsparl * Bzstar		           # curv drft + parl
+     	    + M_gamma_B_Bsparl * (Bx * dBdy - By * dBdx)   # gradB drft
+     	    + B_Bsparl * (Ex * By - Ey * Bx)		   # ExB drft
+        )
+        dydt_arr[idx, 3] = (
+            (Bxstar * Ex + Bystar * Ey + Bzstar * Ez) / Bsparl   # parl force
+            - M_gamma_Bsparl * (Bxstar * dBdx + Bystar * dBdy + Bzstar * dBdz)
+        )
+        
 
 @jit.rawkernel()
 def interp_field_kernel(

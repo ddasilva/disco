@@ -15,6 +15,7 @@ joblib = "*"
 line-profiler = "*"
 astropy = "*"
 spacepy = "*"
+scalene = "*"
 
 [dev-packages]
 
