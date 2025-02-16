@@ -347,53 +347,60 @@ def rhs(y, field_model, axes, config):
     Ez, _ = interp_field(field_model.Ez, pos_x, pos_y, pos_z, axes, neighbors=neighbors)
     
     # Get derivatives from finite difference
-    # --------------------------------
+    # ---------------------------------------
     eps = config.grad_step
     
     # in |B| magnitude
-    dBdx_forw, dx_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=eps)
-    dBdx_back, dx_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dx=-eps)
+    pos_x_forw = pos_x + eps
+    pos_x_back = pos_x - eps
+    dBdx_forw, dx_forw_neighbors = interp_field(field_model.B, pos_x_forw, pos_y, pos_z, axes)
+    dBdx_back, dx_back_neighbors = interp_field(field_model.B, pos_x_back, pos_y, pos_z, axes)
     dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
 
-    dBdy_forw, dy_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=eps)
-    dBdy_back, dy_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dy=-eps)
+    pos_y_forw = pos_y + eps
+    pos_y_back = pos_y - eps    
+    dBdy_forw, dy_forw_neighbors = interp_field(field_model.B, pos_x, pos_y_forw, pos_z, axes)
+    dBdy_back, dy_back_neighbors = interp_field(field_model.B, pos_x, pos_y_back, pos_z, axes)
     dBdy = (dBdy_forw - dBdy_back) / (2 * eps)
-    
-    dBdz_forw, dz_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=eps)
-    dBdz_back, dz_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z, axes, dz=-eps)
+
+    pos_z_forw = pos_z + eps
+    pos_z_back = pos_z - eps    
+
+    dBdz_forw, dz_forw_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z_forw, axes)
+    dBdz_back, dz_back_neighbors = interp_field(field_model.B, pos_x, pos_y, pos_z_back, axes)
     dBdz = (dBdz_forw - dBdz_back) / (2 * eps)
 
     # in Bx
-    dBxdy_forw, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=eps, neighbors=dy_forw_neighbors)
-    dBxdy_back, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dy=-eps, neighbors=dy_back_neighbors)
+    dBxdy_forw, _ = interp_field(field_model.Bx, pos_x, pos_y_forw, pos_z, axes, neighbors=dy_forw_neighbors)
+    dBxdy_back, _ = interp_field(field_model.Bx, pos_x, pos_y_back, pos_z, axes, neighbors=dy_back_neighbors)
     dBxdy = (dBxdy_forw - dBxdy_back) / (2 * eps)
 
-    dBxdz_forw, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=eps, neighbors=dz_forw_neighbors)
-    dBxdz_back, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z, axes, dz=-eps, neighbors=dz_back_neighbors)
+    dBxdz_forw, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z_forw, axes, neighbors=dz_forw_neighbors)
+    dBxdz_back, _ = interp_field(field_model.Bx, pos_x, pos_y, pos_z_back, axes, neighbors=dz_back_neighbors)
     dBxdz = (dBxdz_forw - dBxdz_back) / (2 * eps)
     
     # in By
-    dBydx_forw, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=eps, neighbors=dx_forw_neighbors)
-    dBydx_back, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dx=-eps, neighbors=dx_back_neighbors)
+    dBydx_forw, _ = interp_field(field_model.By, pos_x_forw, pos_y, pos_z, axes, neighbors=dx_forw_neighbors)
+    dBydx_back, _ = interp_field(field_model.By, pos_x_back, pos_y, pos_z, axes, neighbors=dx_back_neighbors)
     dBydx = (dBydx_forw - dBydx_back) / (2 * eps)
     
-    dBydz_forw, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=eps, neighbors=dz_forw_neighbors)
-    dBydz_back, _ = interp_field(field_model.By, pos_x, pos_y, pos_z, axes, dz=-eps, neighbors=dz_back_neighbors)
+    dBydz_forw, _ = interp_field(field_model.By, pos_x, pos_y, pos_z_forw, axes, neighbors=dz_forw_neighbors)
+    dBydz_back, _ = interp_field(field_model.By, pos_x, pos_y, pos_z_back, axes, neighbors=dz_back_neighbors)
     dBydz = (dBydz_forw - dBydz_back) / (2 * eps)
 
     # in Bz
-    dBzdx_forw, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=eps, neighbors=dx_forw_neighbors)
-    dBzdx_back, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dx=-eps, neighbors=dx_back_neighbors)
+    dBzdx_forw, _ = interp_field(field_model.Bz, pos_x_forw, pos_y, pos_z, axes, neighbors=dx_forw_neighbors)
+    dBzdx_back, _ = interp_field(field_model.Bz, pos_x_back, pos_y, pos_z, axes, neighbors=dx_back_neighbors)
     dBzdx = (dBzdx_forw - dBzdx_back) / (2 * eps)
     
-    dBzdy_forw, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=eps, neighbors=dy_forw_neighbors)
-    dBzdy_back, _ = interp_field(field_model.Bz, pos_x, pos_y, pos_z, axes, dy=-eps, neighbors=dy_back_neighbors)
+    dBzdy_forw, _ = interp_field(field_model.Bz, pos_x, pos_y_forw, pos_z, axes, neighbors=dy_forw_neighbors)
+    dBzdy_back, _ = interp_field(field_model.Bz, pos_x, pos_y_back, pos_z, axes, neighbors=dy_back_neighbors)
     dBzdy = (dBzdy_forw - dBzdy_back) / (2 * eps)
 
     # Launch Kernel to handle rest of RHS
-    # -----------------------------
+    # --------------------------------------
     arr_size = pos_x.size
-    block_size = 512
+    block_size = 256
     grid_size = int(math.ceil(arr_size / block_size))
 
     dydt = cp.zeros((pos_x.size, 5))
@@ -410,7 +417,8 @@ def rhs(y, field_model, axes, config):
 
 
 
-def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None, dx=0, dy=0, dz=0):
+@profile
+def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None):
     """Interpolate a 3D gridded field at given positions.
 
     Args
@@ -422,27 +430,23 @@ def interp_field(field, pos_x, pos_y, pos_z, axes, neighbors=None, dx=0, dy=0, d
     Return
       result: cupy array of interpolated field values at position
       neighbors: neighbors object for reuse
-    """ 
-    pos_x_pert = pos_x + dx
-    pos_y_pert = pos_y + dy
-    pos_z_pert = pos_z + dz
-    
+    """     
     if neighbors is None:
         neighbors = Neighbors(
-            field_i=cp.searchsorted(axes.x, pos_x_pert),
-            field_j=cp.searchsorted(axes.y, pos_y_pert),
-            field_k=cp.searchsorted(axes.z, pos_z_pert),
+            field_i=cp.searchsorted(axes.x, pos_x),
+            field_j=cp.searchsorted(axes.y, pos_y),
+            field_k=cp.searchsorted(axes.z, pos_z),
         )
         
     result = cp.zeros(pos_x.shape)    
     arr_size = pos_x.size
-    block_size = 1024
+    block_size = 128
     grid_size = int(math.ceil(arr_size / block_size))
     
     interp_field_kernel[grid_size, block_size](
         arr_size, result, field,
         neighbors.field_i, neighbors.field_j, neighbors.field_k,
-        pos_x_pert, pos_y_pert, pos_z_pert,
+        pos_x, pos_y, pos_z,
         axes.x, axes.y, axes.z
     )
 
