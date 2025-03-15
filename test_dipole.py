@@ -13,19 +13,20 @@ EARTH_DIPOLE_B0 = -30e3   # nT
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=.5, h_initial=1e-2, h_min=1e-10, rtol=1e-2)
+    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-2, h_min=1e-10, rtol=1e-3)
     grid_spacing = 0.1
     
     # Setup axes and grid
+    t_axis = np.array([0, 100]) * units.s
     x_axis = np.arange(-10, 10, grid_spacing) * units.R_earth
     y_axis = np.arange(-10, 10, grid_spacing) * units.R_earth
     z_axis = np.arange(-5, 5, grid_spacing) * units.R_earth
     
-    x_grid, y_grid, z_grid = np.meshgrid(
-        y_axis, y_axis, z_axis,
+    t_grid, x_grid, y_grid, z_grid = np.meshgrid(
+        t_axis, y_axis, y_axis, z_axis,
         indexing='ij'
     )
-    axes = libgputrace.Axes.initialize(x_axis, y_axis, z_axis)
+    axes = libgputrace.Axes.initialize(t_axis, x_axis, y_axis, z_axis)
     
     print('Grid Shape:', x_grid.shape)
     
