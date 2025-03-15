@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from astropy import constants, units
 from line_profiler import profile
+import numpy as np
 
 @dataclass
 class TraceConfig:
@@ -13,7 +14,7 @@ class TraceConfig:
     t_final: float            # end time of integration
     t_initial: float = 0      # start time of integration
     h_initial: float = .1     # initial step size
-    h_min: float = .01        # min step size
+    h_min: float = 1e-10      # min step size
     h_max: float = 1000       # max step size
     rtol: float = 1e-4        # relative tolerance
     grad_step: float = 5e-2   # finite diff delta step (half)
@@ -272,7 +273,9 @@ def trace_trajectory(config, particle_state, field_model, axes):
 
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
-    t = cp.ones(particle_state.x.size) * redim_time(config.t_initial)
+    t = cp.zeros(particle_state.x.size)
+    t[:] = redim_time(config.t_initial)
+    
     y = cp.zeros((particle_state.x.size, 5))
     y[:, 0] = particle_state.x
     y[:, 1] = particle_state.y
