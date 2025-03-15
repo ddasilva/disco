@@ -8,6 +8,7 @@ from astropy import constants, units
 from line_profiler import profile
 import numpy as np
 
+
 @dataclass
 class TraceConfig:
     """Configuration for running the tracing code"""
@@ -19,36 +20,27 @@ class TraceConfig:
     rtol: float = 1e-4        # relative tolerance
     grad_step: float = 5e-2   # finite diff delta step (half)
     output_freq: int = 10     # in iterations
-    
-@dataclass
+
+
 class FieldModel:
-    """Set of magnetic and electric field models
+    """Abstract Base class of magnetic and electric field models.
 
-    See also:
-      Axes
-    """
-    Bx: Any
-    By: Any
-    Bz: Any
-    B: Any
-    Ex: Any
-    Ey: Any
-    Ez: Any
+    Attributes
+      Bx: Magnetic Field X (dimensionalized)
+      By: Magnetic Field Y (dimensionalized)
+      Bz: Magnetic Field Z (dimensionalized)
+      B: Magnetic Field Magnitude (dimensionalized)
+      Ex: Electric Field X (dimensionalized)
+      Ey: Electric Field Y (dimensionalized)
+      Ez: Electric Field Z (dimensionalized)
+    """    
+    def __init__(self, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge):
+        """Get an instance that is dimensionalized and stored on the GPU.
 
-    _dimensionalized: bool
-
-    @classmethod
-    def initialize(cls, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge):
-        """Get a FieldModel() instance that is dimensionalized 
-        and stored on the GPU.
-
-        arrays are in shape (nt, nx, ny, nz)
-
-        mass is not part of field model, but is used for 
-        to redimensionalize.
+        mass is not part of field model, but is used to redimensionalize.
 
         Input argument should have astropy units attached.
-        Returns FieldModel instance         
+        Returns instance of class 
         """
         q = charge
         Re = constants.R_earth
@@ -56,30 +48,76 @@ class FieldModel:
         sf = (q * Re / (mass * c**2))
         B_units = units.s / Re
         
-        gpu_Bx = cp.array((sf * Bx).to(B_units).value)
-        gpu_By = cp.array((sf * By).to(B_units).value)
-        gpu_Bz = cp.array((sf * Bz).to(B_units).value)
-        gpu_B = cp.array((sf * B).to(B_units).value)        
-        gpu_Ex = cp.array((sf * Ex).to(1).value)
-        gpu_Ey = cp.array((sf * Ey).to(1).value)
-        gpu_Ez = cp.array((sf * Ez).to(1).value)
-        
-        return FieldModel(
-            Bx=gpu_Bx, By=gpu_By, Bz=gpu_Bz, B=gpu_B,
-            Ex=gpu_Ex, Ey=gpu_Ey, Ez=gpu_Ez,
-            _dimensionalized=True
-
-            
-        )
+        self.Bx = cp.array((sf * Bx).to(B_units).value)
+        self.By = cp.array((sf * By).to(B_units).value)
+        self.Bz = cp.array((sf * Bz).to(B_units).value)
+        self.B = cp.array((sf * B).to(B_units).value)        
+        self.Ex = cp.array((sf * Ex).to(1).value)
+        self.Ey = cp.array((sf * Ey).to(1).value)
+        self.Ez = cp.array((sf * Ez).to(1).value)        
 
     def interp(self, field, t, pos_x, pos_y, pos_z, axes, neighbors=None):
+        """Abstract base method to be overridden."""
+        raise NotImplementedError("This method should be defined in a subclass")
+    
+
+class UnstructuredFieldModel(FieldModel):
+    """Set of magnetic and electric field models on unstructured grid.
+
+    Interpolation is done by distance-weighted-averaging points within
+    a neighborhood.
+    """
+    
+    def __init__(self, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge, point_cloud):
+        """Get an instance that is dimensionalized and stored on the GPU.
+
+        Notes
+        - mass is not part of field model, but is used to redimensionalize.
+        - input argument should have astropy units attached.
+        - point_cloud is instance of UnstructuredFieldModelPointCloud
+        """
+        self.point_cloud = point_cloud
+        super().__init__(Bx, By, Bz, B, Ex, Ey, Ez, mass, charge)
+    
+    def interp(self, field, t, pos_x, pos_y, pos_z, neighbors=None):
+        """Interpolate field at given positions.
+        
+        Args
+          field: field variable to interpolate
+          t: time to interpolate at
+          pos_x, pos_y, pos_z: particle positions
+          neighbors: optional, reuse this value for lookup of the neighbors
+          dx, dy, dz: optional, perturb the position by these values    
+        Return
+          result: cupy array of interpolated field values at position
+          neighbors: neighbors object for reuse
+        """     
+        
+
+class RectilinearFieldModel(FieldModel):
+    """Set of magnetic and electric field models on rectilinear grid
+
+    See also:
+      RectilinearAxes
+    """
+    def __init__(self, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge, axes):
+        """Get an instance that is dimensionalized and stored on the GPU.
+
+        Notes
+        - mass is not part of field model, but is used to redimensionalize.
+        - input argument should have astropy units attached.
+        - axes is an instance of RectilinearAxes
+        """
+        self.axes = axes
+        super().__init__(Bx, By, Bz, B, Ex, Ey, Ez, mass, charge)
+    
+    def interp(self, field, t, pos_x, pos_y, pos_z, neighbors=None):
         """Interpolate a 3D gridded field at given positions.
         
         Args
           field: 3D gridded field to interpolate
           t: time to interpolate at
           pos_x, pos_y, pos_z: particle positions
-          axes: rectilinear grid axes
           neighbors: optional, reuse this value for lookup of the neighbors
           dx, dy, dz: optional, perturb the position by these values    
         Return
@@ -87,13 +125,7 @@ class FieldModel:
           neighbors: neighbors object for reuse
         """     
         if neighbors is None:
-            neighbors = Neighbors(
-                # side='right' helps first time step
-                field_i=cp.searchsorted(axes.t, t, side='right'),
-                field_j=cp.searchsorted(axes.x, pos_x),
-                field_k=cp.searchsorted(axes.y, pos_y),
-                field_l=cp.searchsorted(axes.z, pos_z),
-            )
+            neighbors = self.axes.get_neighbors(t, pos_x, pos_y, pos_z)
 
         result = cp.zeros(pos_x.shape)    
         arr_size = pos_x.size
@@ -107,29 +139,24 @@ class FieldModel:
             neighbors.field_k,
             neighbors.field_l,
             t, pos_x, pos_y, pos_z,
-            axes.t, axes.x, axes.y, axes.z
+            self.axes.t, self.axes.x, self.axes.y, self.axes.z
         )
 
         return result, neighbors
     
 
-@dataclass
 class ParticleState:
-    """1D arrays of cartesian particle position component"""
-    # these vary in time
-    x: Any                    # x position
-    y: Any                    # y position
-    z: Any                    # z position
-    ppar: Any                 # parallel momentum
+    """1D arrays of cartesian particle position component"
 
-    # these *don't* vary in time
-    magnetic_moment: Any      # first invariant
-    mass: Any                 # rest mass
-
-    _dimensionalized: bool
-
-    @classmethod
-    def initialize(cls, x, y, z, ppar, magnetic_moment, mass, charge):
+    Attributes
+      x: x position
+      y: y position
+      z: z position
+      ppar: parallel momentum
+      magnetic_moment: first invariant
+      mass: rest mass
+    """
+    def __init__(self, x, y, z, ppar, magnetic_moment, mass, charge):
         """Get a ParticleState() instance that is dimensionalized 
         and stored on the GPU.
         
@@ -142,50 +169,89 @@ class ParticleState:
         Re = constants.R_earth
         c = constants.c
         
-        gpu_x = cp.array((x / Re).to(1).value)
-        gpu_y = cp.array((y / Re).to(1).value)
-        gpu_z = cp.array((z / Re).to(1).value)
-        gpu_ppar = cp.array((ppar / (c * mass)).to(1).value)
-        gpu_magnetic_moment = cp.array(
+        self.x = cp.array((x / Re).to(1).value)
+        self.y = cp.array((y / Re).to(1).value)
+        self.z = cp.array((z / Re).to(1).value)
+        self.ppar = cp.array((ppar / (c * mass)).to(1).value)
+        self.magnetic_moment = cp.array(
             (magnetic_moment / (q * Re)).to(Re/units.s).value
         )
-        gpu_mass = cp.array(mass.to(units.kg).value)
-        
-        return ParticleState(
-            x=gpu_x, y=gpu_y, z=gpu_z, ppar=gpu_ppar,
-            magnetic_moment=gpu_magnetic_moment, mass=gpu_mass,
-            _dimensionalized=True        
-        )
-        
-        
-@dataclass
-class Axes:
-    """1D arrays of rectilinear grid axes"""
-    t: Any                    # time axis
-    x: Any                    # x axis
-    y: Any                    # y axis
-    z: Any                    # z axis
-    _dimensionalized: bool
+        self.mass = cp.array(mass.to(units.kg).value)
+
+
+class UnstructuredFieldModelPointCloud:
+    """Point cloud positions for unstructured field model.
+
+    Attributes
+      t: time axis
+      x: x axis
+      y: y axis
+      z: z axis
+    """
+    DEFAULT_NEIGHBORHOOD_SIZE = 0.25
     
-    @classmethod
-    def initialize(cls, t, x, y, z):
-        """Get Axes() instance that is dimensionalized and stored
+    def __init__(self, t, x, y, z, neighborhood_size=DEFAULT_NEIGHBORHOOD_SIZE):
+        """Initialize instance that is dimensionalized and stored
         on the GPU.
 
-        INput argument should have astropy units
-        Returns Axes instance
-        """        
-        Re = constants.R_earth
-        gpu_t = cp.array(redim_time(t.to(units.s).value))
-        gpu_x = cp.array((x / Re).to(1).value)
-        gpu_y = cp.array((y / Re).to(1).value)
-        gpu_z = cp.array((z / Re).to(1).value)
+        Input arguments should have astropy units
+        """
 
-        return Axes(
-            t=gpu_t, x=gpu_x, y=gpu_y, z=gpu_z,
-            _dimensionalized=True
-        )
+        assert len(t.shape) == 1
+        assert len(x.shape) == 2
+        assert len(y.shape) == 2
+        assert len(z.shape) == 2
+                        
+        Re = constants.R_earth
+        self.t = cp.array(redim_time(t.to(units.s).value))
+        self.x = cp.array((x / Re).to(1).value)
+        self.y = cp.array((y / Re).to(1).value)
+        self.z = cp.array((z / Re).to(1).value)
+
+    def get_neighbors(self, t, pos_x, pos_y, pos_z):
+        raise NotImplementedError()
         
+        
+class RectilinearAxes:
+    """1D arrays of rectilinear grid axes
+
+    Attributes
+      t: time axis
+      x: x axis
+      y: y axis
+      z: z axis
+    """
+    def __init__(self, t, x, y, z):
+        """Initialize instance that is dimensionalized and stored
+        on the GPU.
+
+        Input arguments should have astropy units
+        """
+        assert len(t.shape) == 1
+        assert len(x.shape) == 1
+        assert len(y.shape) == 1
+        assert len(z.shape) == 1
+        
+        Re = constants.R_earth
+        self.t = cp.array(redim_time(t.to(units.s).value))
+        self.x = cp.array((x / Re).to(1).value)
+        self.y = cp.array((y / Re).to(1).value)
+        self.z = cp.array((z / Re).to(1).value)
+
+    def get_neighbors(self, t, pos_x, pos_y, pos_z):
+        """Get instance of RectilinearNeighbors specifying surrounding
+        cell through indeces of upper corner
+
+        Returns instance of RectilinearNeighbors
+        """
+        return RectilinearNeighbors(
+            # side='right' helps first time step
+            field_i=cp.searchsorted(self.t, t, side='right'),
+            field_j=cp.searchsorted(self.x, pos_x),
+            field_k=cp.searchsorted(self.y, pos_y),
+            field_l=cp.searchsorted(self.z, pos_z),
+        )        
+
     
 @dataclass
 class ParticleHistory:
@@ -202,7 +268,7 @@ class ParticleHistory:
 
         
 @dataclass
-class Neighbors:
+class RectilinearNeighbors:
     """Neighbors of given particles, used for interpolation"""
     field_i: Any
     field_j: Any
@@ -245,7 +311,7 @@ class RK45Coeffs:
     
 
 @profile
-def trace_trajectory(config, particle_state, field_model, axes):
+def trace_trajectory(config, particle_state, field_model):
     """Perform a euler integration particle trace.
     
     Works on a rectilinear grid.
@@ -254,23 +320,9 @@ def trace_trajectory(config, particle_state, field_model, axes):
       config: instance of libgputrace.TraceConfig
       particle_state: instance of libgputrace.ParticleState
       field_model: instance of libgputrace.FieldModel
-      axes: instance of libgputrace.Axes
     Returns  
       hist: instance of libgputrace.ParticleHistory
     """
-    if not axes._dimensionalized:
-        raise ValueError(
-            'axes must be created with Axes.initialize()'
-        )        
-    if not particle_state._dimensionalized:
-        raise ValueError(
-            'paritcle_state must be created with ParticleState.initialize()'
-        )
-    if not field_model._dimensionalized:
-        raise ValueError(
-            'field_model must be created with FieldModel.initialize()'
-        )
-
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     t = cp.zeros(particle_state.x.size)
@@ -308,30 +360,30 @@ def trace_trajectory(config, particle_state, field_model, axes):
         k1 = h_ * rhs(
             t,
             y,
-            field_model, axes, config
+            field_model, config
         )
         k2 = h_ * rhs(
             t + h * R.a2,
-            y + h_ * R.b21 * k1, field_model, axes, config
+            y + h_ * R.b21 * k1, field_model, config
         )
         k3 = h_ * rhs(
             t + h * R.a3,
-            y + h_ * (R.b31*k1 + R.b32*k2), field_model, axes, config
+            y + h_ * (R.b31*k1 + R.b32*k2), field_model, config
         )
         k4 = h_ * rhs(
             t + h * R.a4,
             y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
-            field_model, axes, config
+            field_model, config
         )
         k5 = h_ * rhs(
             t + h,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
-            field_model, axes, config
+            field_model, config
         )
         k6 = h_ * rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
-            field_model, axes, config
+            field_model, config
         )
                 
         y_next = y + R.c1*k1 + R.c3*k3 + R.c4*k4 + R.c5*k5
@@ -354,7 +406,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
         # Save incremented particles to history
         if iter_count % config.output_freq == 0:
             tmp_B, _ = field_model.interp(
-                field_model.B, t, y[:, 0], y[:, 1], y[:, 2], axes
+                field_model.B, t, y[:, 0], y[:, 1], y[:, 2]
             )
             tmp_gamma = cp.sqrt(
                 1 + 2 * tmp_B * y[:, 4] + y[:, 3]**2
@@ -393,7 +445,7 @@ def trace_trajectory(config, particle_state, field_model, axes):
 
 
 @profile
-def rhs(t, y, field_model, axes, config):
+def rhs(t, y, field_model, config):
     """RIght hand side of the guiding center equation differential equation.
 
     Args
@@ -412,25 +464,25 @@ def rhs(t, y, field_model, axes, config):
  
     # Get B and E at particle position
     Bx, neighbors = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y, pos_z, axes
+        field_model.Bx, t, pos_x, pos_y, pos_z,
     )
     By, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y, pos_z, axes, neighbors=neighbors
+        field_model.By, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
     Bz, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y, pos_z, axes, neighbors=neighbors
+        field_model.Bz, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
     B, _ = field_model.interp(
-        field_model.B, t, pos_x, pos_y, pos_z, axes, neighbors=neighbors
+        field_model.B, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
     Ex, _ = field_model.interp(
-        field_model.Ex, t, pos_x, pos_y, pos_z, axes, neighbors=neighbors
+        field_model.Ex, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
     Ey, _ = field_model.interp(
-        field_model.Ey, t, pos_x, pos_y, pos_z, axes, neighbors=neighbors
+        field_model.Ey, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
     Ez, _ = field_model.interp(
-        field_model.Ez, t, pos_x, pos_y, pos_z, axes, neighbors=neighbors
+        field_model.Ez, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
     
     # Get derivatives from finite difference
@@ -441,20 +493,20 @@ def rhs(t, y, field_model, axes, config):
     pos_x_forw = pos_x + eps
     pos_x_back = pos_x - eps
     dBdx_forw, dx_forw_neighbors = field_model.interp(
-        field_model.B, t, pos_x_forw, pos_y, pos_z, axes
+        field_model.B, t, pos_x_forw, pos_y, pos_z
     )
     dBdx_back, dx_back_neighbors = field_model.interp(
-        field_model.B, t, pos_x_back, pos_y, pos_z, axes
+        field_model.B, t, pos_x_back, pos_y, pos_z
     )
     dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
 
     pos_y_forw = pos_y + eps
     pos_y_back = pos_y - eps    
     dBdy_forw, dy_forw_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y_forw, pos_z, axes
+        field_model.B, t, pos_x, pos_y_forw, pos_z
     )
     dBdy_back, dy_back_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y_back, pos_z, axes
+        field_model.B, t, pos_x, pos_y_back, pos_z
     )
     dBdy = (dBdy_forw - dBdy_back) / (2 * eps)
 
@@ -462,72 +514,72 @@ def rhs(t, y, field_model, axes, config):
     pos_z_back = pos_z - eps    
 
     dBdz_forw, dz_forw_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y, pos_z_forw, axes
+        field_model.B, t, pos_x, pos_y, pos_z_forw
     )
     dBdz_back, dz_back_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y, pos_z_back, axes
+        field_model.B, t, pos_x, pos_y, pos_z_back
     )
     dBdz = (dBdz_forw - dBdz_back) / (2 * eps)
 
     # in Bx
     dBxdy_forw, _ = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y_forw, pos_z, axes,
+        field_model.Bx, t, pos_x, pos_y_forw, pos_z,
         neighbors=dy_forw_neighbors
     )
     dBxdy_back, _ = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y_back, pos_z, axes,
+        field_model.Bx, t, pos_x, pos_y_back, pos_z,
         neighbors=dy_back_neighbors
     )
     dBxdy = (dBxdy_forw - dBxdy_back) / (2 * eps)
 
     dBxdz_forw, _ = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y, pos_z_forw, axes,
+        field_model.Bx, t, pos_x, pos_y, pos_z_forw,
         neighbors=dz_forw_neighbors
     )
     dBxdz_back, _ = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y, pos_z_back, axes,
+        field_model.Bx, t, pos_x, pos_y, pos_z_back,
         neighbors=dz_back_neighbors
     )
     dBxdz = (dBxdz_forw - dBxdz_back) / (2 * eps)
     
     # in By
     dBydx_forw, _ = field_model.interp(
-        field_model.By, t, pos_x_forw, pos_y, pos_z, axes,
+        field_model.By, t, pos_x_forw, pos_y, pos_z,
         neighbors=dx_forw_neighbors
     )
     dBydx_back, _ = field_model.interp(
-        field_model.By, t, pos_x_back, pos_y, pos_z, axes,
+        field_model.By, t, pos_x_back, pos_y, pos_z,
         neighbors=dx_back_neighbors
     )
     dBydx = (dBydx_forw - dBydx_back) / (2 * eps)
     
     dBydz_forw, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y, pos_z_forw, axes,
+        field_model.By, t, pos_x, pos_y, pos_z_forw,
         neighbors=dz_forw_neighbors
     )
     dBydz_back, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y, pos_z_back, axes, 
+        field_model.By, t, pos_x, pos_y, pos_z_back, 
         neighbors=dz_back_neighbors
     )
     dBydz = (dBydz_forw - dBydz_back) / (2 * eps)
 
     # in Bz
     dBzdx_forw, _ = field_model.interp(
-        field_model.Bz, t, pos_x_forw, pos_y, pos_z, axes,
+        field_model.Bz, t, pos_x_forw, pos_y, pos_z, 
         neighbors=dx_forw_neighbors
     )
     dBzdx_back, _ = field_model.interp(
-        field_model.Bz, t, pos_x_back, pos_y, pos_z, axes,
+        field_model.Bz, t, pos_x_back, pos_y, pos_z, 
         neighbors=dx_back_neighbors
     )
     dBzdx = (dBzdx_forw - dBzdx_back) / (2 * eps)
     
     dBzdy_forw, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y_forw, pos_z, axes,
+        field_model.Bz, t, pos_x, pos_y_forw, pos_z, 
         neighbors=dy_forw_neighbors
     )
     dBzdy_back, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y_back, pos_z, axes,
+        field_model.Bz, t, pos_x, pos_y_back, pos_z, 
         neighbors=dy_back_neighbors
     )
     dBzdy = (dBzdy_forw - dBzdy_back) / (2 * eps)

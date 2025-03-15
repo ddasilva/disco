@@ -26,7 +26,7 @@ def main():
         t_axis, y_axis, y_axis, z_axis,
         indexing='ij'
     )
-    axes = libgputrace.Axes.initialize(t_axis, x_axis, y_axis, z_axis)
+    axes = libgputrace.RectilinearAxes(t_axis, x_axis, y_axis, z_axis)
     
     print('Grid Shape:', x_grid.shape)
     
@@ -49,7 +49,7 @@ def main():
     print(f'M={magnetic_moment.to(units.MeV/units.Gauss)}')
     charge = - elementary_charge * units.C
     mass = constants.m_e
-    particle_state = libgputrace.ParticleState.initialize(
+    particle_state = libgputrace.ParticleState(
         pos_x, pos_y, pos_z, 
         ppar, magnetic_moment, mass, charge
     )
@@ -75,13 +75,13 @@ def main():
     Ey = np.zeros(Bx.shape) * units.mV/units.m
     Ez = np.zeros(Bx.shape) * units.mV/units.m
 
-    field_model = libgputrace.FieldModel.initialize(
-        Bx, By, Bz, B, Ex, Ey, Ez, mass, charge,
+    field_model = libgputrace.RectilinearFieldModel(
+        Bx, By, Bz, B, Ex, Ey, Ez, mass, charge, axes
     )
 
     # Call the trace routine
     start_time = time.time()
-    hist = libgputrace.trace_trajectory(config, particle_state, field_model, axes)
+    hist = libgputrace.trace_trajectory(config, particle_state, field_model)
     end_time = time.time()
     
     print('took ', end_time - start_time, 's')
