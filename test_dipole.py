@@ -76,7 +76,7 @@ def main():
     Ez = np.zeros(Bx.shape) * units.mV/units.m
 
     field_model = libgputrace.RectilinearFieldModel(
-        Bx, By, Bz, B, Ex, Ey, Ez, mass, charge, axes
+        Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes
     )
 
     # Call the trace routine

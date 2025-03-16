@@ -34,7 +34,7 @@ class FieldModel:
       Ey: Electric Field Y (dimensionalized)
       Ez: Electric Field Z (dimensionalized)
     """    
-    def __init__(self, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         mass is not part of field model, but is used to redimensionalize.
@@ -47,6 +47,7 @@ class FieldModel:
         c = constants.c
         sf = (q * Re / (mass * c**2))
         B_units = units.s / Re
+        B = np.sqrt(Bx**2 + By**2 + Bz**2)
         
         self.Bx = cp.array((sf * Bx).to(B_units).value)
         self.By = cp.array((sf * By).to(B_units).value)
@@ -68,7 +69,7 @@ class UnstructuredFieldModel(FieldModel):
     a neighborhood.
     """
     
-    def __init__(self, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge, point_cloud):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, point_cloud):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         Notes
@@ -77,7 +78,7 @@ class UnstructuredFieldModel(FieldModel):
         - point_cloud is instance of UnstructuredFieldModelPointCloud
         """
         self.point_cloud = point_cloud
-        super().__init__(Bx, By, Bz, B, Ex, Ey, Ez, mass, charge)
+        super().__init__(Bx, By, Bz, Ex, Ey, Ez, mass, charge)
     
     def interp(self, field, t, pos_x, pos_y, pos_z, neighbors=None):
         """Interpolate field at given positions.
@@ -100,7 +101,7 @@ class RectilinearFieldModel(FieldModel):
     See also:
       RectilinearAxes
     """
-    def __init__(self, Bx, By, Bz, B, Ex, Ey, Ez, mass, charge, axes):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         Notes
@@ -109,7 +110,7 @@ class RectilinearFieldModel(FieldModel):
         - axes is an instance of RectilinearAxes
         """
         self.axes = axes
-        super().__init__(Bx, By, Bz, B, Ex, Ey, Ez, mass, charge)
+        super().__init__(Bx, By, Bz, Ex, Ey, Ez, mass, charge)
     
     def interp(self, field, t, pos_x, pos_y, pos_z, neighbors=None):
         """Interpolate a 3D gridded field at given positions.
