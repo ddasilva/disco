@@ -49,15 +49,7 @@ def main():
         indexing='ij'
     )       
     r_grid = np.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
-    
-    Bx_dip = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
-    By_dip = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
-    Bz_dip = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
-
-    Bx += Bx_dip 
-    By += By_dip 
-    Bz += Bz_dip 
-          
+              
     # Print or use the data
     print("Bx:", Bx.shape)
     print("By:", By.shape)

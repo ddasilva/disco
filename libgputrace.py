@@ -34,7 +34,9 @@ class FieldModel:
       Ey: Electric Field Y (dimensionalized)
       Ez: Electric Field Z (dimensionalized)
     """    
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge):
+    DEFAULT_RAW_B0 = -31e3 * units.nT
+
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, B0=DEFAULT_RAW_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         mass is not part of field model, but is used to redimensionalize.
@@ -47,12 +49,12 @@ class FieldModel:
         c = constants.c
         sf = (q * Re / (mass * c**2))
         B_units = units.s / Re
-        B = np.sqrt(Bx**2 + By**2 + Bz**2)
-        
+
+        self.negative_charge = q.value < 0
         self.Bx = cp.array((sf * Bx).to(B_units).value)
         self.By = cp.array((sf * By).to(B_units).value)
-        self.Bz = cp.array((sf * Bz).to(B_units).value)
-        self.B = cp.array((sf * B).to(B_units).value)        
+        self.Bz = cp.array((sf * Bz).to(B_units).value)        
+        self.B0 = cp.array((sf * B0).to(B_units).value)
         self.Ex = cp.array((sf * Ex).to(1).value)
         self.Ey = cp.array((sf * Ey).to(1).value)
         self.Ez = cp.array((sf * Ez).to(1).value)        
@@ -60,7 +62,24 @@ class FieldModel:
     def interp(self, field, t, pos_x, pos_y, pos_z, axes, neighbors=None):
         """Abstract base method to be overridden."""
         raise NotImplementedError("This method should be defined in a subclass")
-    
+
+    def get_dipole(self, pos_x, pos_y, pos_z, values=("Bx", "By", "Bz")):
+        """Documentation TODO"""
+        pos_r = np.sqrt(pos_x**2 + pos_y**2 + pos_z**2)
+        rv = []
+
+        if 'Bx' in values:    
+            rv.append(3 * pos_x * pos_z * self.B0 / pos_r**5)
+        if 'By' in values:
+            rv.append(3 * pos_y * pos_z * self.B0 / pos_r**5)
+        if 'Bz' in values:
+            rv.append((3 * pos_z**2 - pos_r**2) * self.B0 / pos_r**5)
+
+        if len(rv) == 1:
+            return rv[0]
+        else:            
+            return rv
+        
 
 class UnstructuredFieldModel(FieldModel):
     """Set of magnetic and electric field models on unstructured grid.
@@ -128,7 +147,8 @@ class RectilinearFieldModel(FieldModel):
         if neighbors is None:
             neighbors = self.axes.get_neighbors(t, pos_x, pos_y, pos_z)
 
-        result = cp.zeros(pos_x.shape)    
+        result = cp.zeros(pos_x.shape)
+        return result, neighbors
         arr_size = pos_x.size
         block_size = 128
         grid_size = int(math.ceil(arr_size / block_size))
@@ -169,7 +189,7 @@ class ParticleState:
         q = charge
         Re = constants.R_earth
         c = constants.c
-        
+
         self.x = cp.array((x / Re).to(1).value)
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
@@ -406,9 +426,20 @@ def trace_trajectory(config, particle_state, field_model):
 
         # Save incremented particles to history
         if iter_count % config.output_freq == 0:
-            tmp_B, _ = field_model.interp(
-                field_model.B, t, y[:, 0], y[:, 1], y[:, 2]
+            tmp_Bx, _ = field_model.interp(
+                field_model.Bx, t, y[:, 0], y[:, 1], y[:, 2]
             )
+            tmp_By, _ = field_model.interp(
+                field_model.By, t, y[:, 0], y[:, 1], y[:, 2]
+            )
+            tmp_Bz, _ = field_model.interp(
+                field_model.Bz, t, y[:, 0], y[:, 1], y[:, 2]
+            )
+            Bx_dip, By_dip, Bz_dip = field_model.get_dipole(y[:, 0], y[:, 1], y[:, 2])
+            tmp_B = cp.sqrt((tmp_Bx + Bx_dip)**2 + (tmp_By + By_dip)**2 + (tmp_Bz + Bz_dip)**2)
+            if field_model.negative_charge:
+                tmp_B *= -1
+                
             tmp_gamma = cp.sqrt(
                 1 + 2 * tmp_B * y[:, 4] + y[:, 3]**2
             )
@@ -420,9 +451,11 @@ def trace_trajectory(config, particle_state, field_model):
             hist_W.append(tmp_W.get())
             hist_h.append(h.get())
 
+        r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
+            
         print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% '
               f'(iter {iter_count}, {mask.sum()} iterated, h mean '
-              f'{h.mean():.1E})')
+              f'{h.mean():.1E}, r mean {r_mean:.2f})')
         
         sys.stdout.flush()
 
@@ -473,9 +506,15 @@ def rhs(t, y, field_model, config):
     Bz, _ = field_model.interp(
         field_model.Bz, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
-    B, _ = field_model.interp(
-        field_model.B, t, pos_x, pos_y, pos_z, neighbors=neighbors
-    )
+    
+    Bx_dip, By_dip, Bz_dip = field_model.get_dipole(pos_x, pos_y, pos_z)
+    
+    Bx += Bx_dip
+    By += By_dip
+    Bz += Bz_dip
+    
+    B = cp.sqrt(Bx**2 + By**2 + Bz**2)
+    
     Ex, _ = field_model.interp(
         field_model.Ex, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
@@ -489,61 +528,49 @@ def rhs(t, y, field_model, config):
     # Get derivatives from finite difference
     # ---------------------------------------
     eps = config.grad_step
-    
-    # in |B| magnitude
+
     pos_x_forw = pos_x + eps
-    pos_x_back = pos_x - eps
-    dBdx_forw, dx_forw_neighbors = field_model.interp(
-        field_model.B, t, pos_x_forw, pos_y, pos_z
-    )
-    dBdx_back, dx_back_neighbors = field_model.interp(
-        field_model.B, t, pos_x_back, pos_y, pos_z
-    )
-    dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
-
     pos_y_forw = pos_y + eps
-    pos_y_back = pos_y - eps    
-    dBdy_forw, dy_forw_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y_forw, pos_z
-    )
-    dBdy_back, dy_back_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y_back, pos_z
-    )
-    dBdy = (dBdy_forw - dBdy_back) / (2 * eps)
-
     pos_z_forw = pos_z + eps
-    pos_z_back = pos_z - eps    
-
-    dBdz_forw, dz_forw_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y, pos_z_forw
+    
+    pos_x_back = pos_x - eps
+    pos_y_back = pos_y - eps
+    pos_z_back = pos_z - eps
+    
+    # dBx/dx
+    dBxdx_forw, dx_forw_neighbors = field_model.interp(
+        field_model.Bx, t, pos_x_forw, pos_y, pos_z,
     )
-    dBdz_back, dz_back_neighbors = field_model.interp(
-        field_model.B, t, pos_x, pos_y, pos_z_back
+    dBxdx_back, dx_back_neighbors = field_model.interp(
+        field_model.Bx, t, pos_x_back, pos_y, pos_z,
     )
-    dBdz = (dBdz_forw - dBdz_back) / (2 * eps)
-
-    # in Bx
-    dBxdy_forw, _ = field_model.interp(
+    dBxdx_forw += field_model.get_dipole(pos_x_forw, pos_y, pos_z, "Bx")
+    dBxdx_back += field_model.get_dipole(pos_x_back, pos_y, pos_z, "Bx")    
+    dBxdx = (dBxdx_forw - dBxdx_back) / (2 * eps)
+    
+    # dBx/dy
+    dBxdy_forw, dy_forw_neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y_forw, pos_z,
-        neighbors=dy_forw_neighbors
     )
-    dBxdy_back, _ = field_model.interp(
+    dBxdy_back, dy_back_neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y_back, pos_z,
-        neighbors=dy_back_neighbors
     )
+    dBxdy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "Bx")
+    dBxdy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "Bx")    
     dBxdy = (dBxdy_forw - dBxdy_back) / (2 * eps)
 
-    dBxdz_forw, _ = field_model.interp(
+    # dBx/dz
+    dBxdz_forw, dz_forw_neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y, pos_z_forw,
-        neighbors=dz_forw_neighbors
     )
-    dBxdz_back, _ = field_model.interp(
+    dBxdz_back, dz_back_neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y, pos_z_back,
-        neighbors=dz_back_neighbors
     )
+    dBxdz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "Bx")
+    dBxdz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "Bx")
     dBxdz = (dBxdz_forw - dBxdz_back) / (2 * eps)
     
-    # in By
+    # dBy/dx
     dBydx_forw, _ = field_model.interp(
         field_model.By, t, pos_x_forw, pos_y, pos_z,
         neighbors=dx_forw_neighbors
@@ -551,9 +578,25 @@ def rhs(t, y, field_model, config):
     dBydx_back, _ = field_model.interp(
         field_model.By, t, pos_x_back, pos_y, pos_z,
         neighbors=dx_back_neighbors
-    )
+    )    
+    dBydx_forw += field_model.get_dipole(pos_x_forw, pos_y, pos_z, "By")
+    dBydx_back += field_model.get_dipole(pos_x_back, pos_y, pos_z, "By")    
     dBydx = (dBydx_forw - dBydx_back) / (2 * eps)
+
+    # dBy/dy
+    dBydy_forw, _ = field_model.interp(
+        field_model.By, t, pos_x, pos_y_forw, pos_z,
+        neighbors=dy_forw_neighbors
+    )
+    dBydy_back, _ = field_model.interp(
+        field_model.By, t, pos_x, pos_y_back, pos_z,
+        neighbors=dy_back_neighbors
+    )    
+    dBydy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "By")
+    dBydy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "By")    
+    dBydy = (dBydy_forw - dBydy_back) / (2 * eps)
     
+    # dBy/dz
     dBydz_forw, _ = field_model.interp(
         field_model.By, t, pos_x, pos_y, pos_z_forw,
         neighbors=dz_forw_neighbors
@@ -562,9 +605,11 @@ def rhs(t, y, field_model, config):
         field_model.By, t, pos_x, pos_y, pos_z_back, 
         neighbors=dz_back_neighbors
     )
+    dBydz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "By")
+    dBydz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "By")    
     dBydz = (dBydz_forw - dBydz_back) / (2 * eps)
 
-    # in Bz
+    # dBz/dx
     dBzdx_forw, _ = field_model.interp(
         field_model.Bz, t, pos_x_forw, pos_y, pos_z, 
         neighbors=dx_forw_neighbors
@@ -573,8 +618,11 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x_back, pos_y, pos_z, 
         neighbors=dx_back_neighbors
     )
+    dBzdx_forw += field_model.get_dipole(pos_x_forw, pos_y, pos_z, "Bz")
+    dBzdx_back += field_model.get_dipole(pos_x_back, pos_y, pos_z, "Bz")    
     dBzdx = (dBzdx_forw - dBzdx_back) / (2 * eps)
-    
+
+    # dBz/dy
     dBzdy_forw, _ = field_model.interp(
         field_model.Bz, t, pos_x, pos_y_forw, pos_z, 
         neighbors=dy_forw_neighbors
@@ -583,14 +631,49 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x, pos_y_back, pos_z, 
         neighbors=dy_back_neighbors
     )
+    dBzdy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "Bz")
+    dBzdy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "Bz")    
     dBzdy = (dBzdy_forw - dBzdy_back) / (2 * eps)
 
+    # dBz/dz
+    dBzdz_forw, _ = field_model.interp(
+        field_model.Bz, t, pos_x, pos_y, pos_z_forw, 
+        neighbors=dz_forw_neighbors
+    )
+    dBzdz_back, _ = field_model.interp(
+        field_model.Bz, t, pos_x, pos_y, pos_z_back, 
+        neighbors=dz_back_neighbors
+    )
+    dBzdz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "Bz")
+    dBzdz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "Bz")    
+    dBzdz = (dBzdz_forw - dBzdz_back) / (2 * eps)
+        
+    # in |B| magnitude
+    dBdx_forw = cp.sqrt(dBxdx_forw**2 + dBydx_forw**2 + dBzdx_forw**2)
+    dBdx_back = cp.sqrt(dBxdx_back**2 + dBydx_back**2 + dBzdx_back**2)    
+    dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
+
+    dBdy_forw = cp.sqrt(dBxdy_forw**2 + dBydy_forw**2 + dBzdy_forw**2)
+    dBdy_back = cp.sqrt(dBxdy_back**2 + dBydy_back**2 + dBzdy_back**2)    
+    dBdy = (dBdy_forw - dBdy_back) / (2 * eps)
+
+    dBdz_forw = cp.sqrt(dBxdz_forw**2 + dBydz_forw**2 + dBzdz_forw**2)
+    dBdz_back = cp.sqrt(dBxdz_back**2 + dBydz_back**2 + dBzdz_back**2)    
+    dBdz = (dBdz_forw - dBdz_back) / (2 * eps)
+
+    # need to account for dimensionalization of magnitude
+    if field_model.negative_charge:
+        B *= -1
+        dBdx *= -1
+        dBdy *= -1
+        dBdz *= -1        
+    
     # Launch Kernel to handle rest of RHS
     # --------------------------------------
     arr_size = pos_x.size
     block_size = 256
     grid_size = int(math.ceil(arr_size / block_size))
-
+    
     dydt = cp.zeros((pos_x.size, 5))
     
     rhs_kernel[grid_size, block_size](

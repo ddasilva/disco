@@ -8,12 +8,10 @@ from astropy import constants, units
 from scipy.constants import elementary_charge
 
 
-EARTH_DIPOLE_B0 = -30e3   # nT
-
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-2, h_min=1e-10, rtol=1e-3)
+    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-1, h_min=1e-10, rtol=5e-3)
     grid_spacing = 0.1
     
     # Setup axes and grid
@@ -31,8 +29,8 @@ def main():
     print('Grid Shape:', x_grid.shape)
     
     # Instantiate particle state and parallel velocity
-    #pos_x = np.array([6.6]) * constants.R_earth
-    pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
+    pos_x = np.array([6.6]) * constants.R_earth
+    #pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
     #vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
@@ -62,15 +60,18 @@ def main():
     z_grid = (z_grid / constants.R_earth).to(1).value
     r_grid = np.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
     
-    Bx = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
-    By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
-    Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
-    B = np.sqrt(Bx**2 + By**2 + Bz**2)
+    #Bx = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
+    #By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
+    #Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
+    #B = np.sqrt(Bx**2 + By**2 + Bz**2)
 
+    Bx = np.zeros_like(x_grid)  # no external field
+    By = np.zeros_like(x_grid)
+    Bz = np.zeros_like(x_grid)
+    
     Bx = Bx * units.nT
     By = By * units.nT
     Bz = Bz * units.nT
-    B = B * units.nT
     Ex = np.zeros(Bx.shape) * units.mV/units.m
     Ey = np.zeros(Bx.shape) * units.mV/units.m
     Ez = np.zeros(Bx.shape) * units.mV/units.m
@@ -78,7 +79,7 @@ def main():
     field_model = libgputrace.RectilinearFieldModel(
         Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes
     )
-
+    
     # Call the trace routine
     start_time = time.time()
     hist = libgputrace.trace_trajectory(config, particle_state, field_model)
@@ -89,8 +90,8 @@ def main():
     # Write output for visualization
     d = {}
     
-    for i in range(0, 500, 50):
-    #for i in range(0, particle_state.x.size, 50):
+    #for i in range(0, 500, 50):
+    for i in range(0, min(500, particle_state.x.size), 50):
         d[f't{i}'] = hist.t[:, i]
         d[f'x{i}'] = hist.x[:, i]
         d[f'y{i}'] = hist.y[:, i]
