@@ -54,7 +54,7 @@ class FieldModel:
         self.Bx = cp.array((sf * Bx).to(B_units).value)
         self.By = cp.array((sf * By).to(B_units).value)
         self.Bz = cp.array((sf * Bz).to(B_units).value)        
-        self.B0 = cp.array((sf * B0).to(B_units).value)
+        self.B0 = float((sf * B0).to(B_units).value)
         self.Ex = cp.array((sf * Ex).to(1).value)
         self.Ey = cp.array((sf * Ey).to(1).value)
         self.Ez = cp.array((sf * Ez).to(1).value)        
@@ -62,6 +62,28 @@ class FieldModel:
     def interp(self, field, t, pos_x, pos_y, pos_z, axes, neighbors=None):
         """Abstract base method to be overridden."""
         raise NotImplementedError("This method should be defined in a subclass")
+
+    def get_dipole_matrix(self, y, eps):
+        """Documentation TODO
+
+        Returns a vector of 3x4 matrices.
+
+        3 are Bx, By, Bz
+        4 are x->x+dx, y->y+dy, z->z+dz, and no change
+        """
+        # Launch Kernel to handle rest 
+        arr_size = y.shape[0]
+        block_size = 256
+        grid_size = int(math.ceil(arr_size / block_size))
+        
+        B0s = cp.zeros(arr_size) + self.B0
+        dipole_mat = cp.zeros((arr_size, 3, 4))
+        
+        dipole_matrix_kernel[grid_size, block_size](
+            arr_size, y, eps, B0s, dipole_mat,
+        )
+
+        return dipole_mat
 
     def get_dipole(self, pos_x, pos_y, pos_z, values=("Bx", "By", "Bz")):
         """Documentation TODO"""
@@ -496,6 +518,8 @@ def rhs(t, y, field_model, config):
     pos_y = y[:, 1]
     pos_z = y[:, 2]            
  
+    dipole_mat = field_model.get_dipole_matrix(y, config.grad_step)
+    
     # Get B and E at particle position
     Bx, neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y, pos_z,
@@ -506,14 +530,12 @@ def rhs(t, y, field_model, config):
     Bz, _ = field_model.interp(
         field_model.Bz, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
-    
+
     Bx_dip, By_dip, Bz_dip = field_model.get_dipole(pos_x, pos_y, pos_z)
     
-    Bx += Bx_dip
-    By += By_dip
-    Bz += Bz_dip
-    
-    B = cp.sqrt(Bx**2 + By**2 + Bz**2)
+    Bx += dipole_mat[:, 0, 3]
+    By += dipole_mat[:, 1, 3]
+    Bz += dipole_mat[:, 2, 3]
     
     Ex, _ = field_model.interp(
         field_model.Ex, t, pos_x, pos_y, pos_z, neighbors=neighbors
@@ -649,6 +671,8 @@ def rhs(t, y, field_model, config):
     dBzdz = (dBzdz_forw - dBzdz_back) / (2 * eps)
         
     # in |B| magnitude
+    B = cp.sqrt(Bx**2 + By**2 + Bz**2)
+
     dBdx_forw = cp.sqrt(dBxdx_forw**2 + dBydx_forw**2 + dBzdx_forw**2)
     dBdx_back = cp.sqrt(dBxdx_back**2 + dBydx_back**2 + dBzdx_back**2)    
     dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
@@ -833,6 +857,42 @@ def interp_quadlinear_kernel(
         result[idx] = c4 * (1 - td) + c5 * td
 
 
+
+
+@jit.rawkernel()
+def dipole_matrix_kernel(arr_size, y, eps, B0, dipole_mat):
+    """[CUPY KERNEL] Documentaion TODO"""    
+    idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+    
+    if idx < arr_size:
+        for i in range(4):
+            
+            if i == 0:
+                pos_x = y[idx, 0] + eps
+            else:
+                pos_x = y[idx, 0]
+
+            if i == 1:
+                pos_y = y[idx, 1] + eps
+            else:
+                pos_y = y[idx, 1]
+
+            if i == 2:
+                pos_z = y[idx, 2] + eps
+            else:
+                pos_z = y[idx, 2]
+            
+            pos_r = (pos_x*pos_x + pos_y*pos_y + pos_z*pos_z)**(1/2)
+                
+            Bx = 3 * pos_x * pos_z * B0[idx] / pos_r**5
+            By = 3 * pos_y * pos_z * B0[idx] / pos_r**5
+            Bz = (3 * pos_z*pos_z - pos_r*pos_r) * B0[idx] / pos_r**5
+
+            dipole_mat[idx, 0, i] = Bx
+            dipole_mat[idx, 1, i] = By
+            dipole_mat[idx, 2, i] = Bz
+    
+        
 def redim_time(val):
     """Redimensionalize a time value.
 
@@ -843,4 +903,5 @@ def redim_time(val):
     """
     sf = constants.c / constants.R_earth
     return (sf * val * units.s).to(1).value
+
 
