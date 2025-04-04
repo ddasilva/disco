@@ -29,8 +29,8 @@ def main():
     print('Grid Shape:', x_grid.shape)
     
     # Instantiate particle state and parallel velocity
-    pos_x = np.array([6.6]) * constants.R_earth
-    #pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
+    #pos_x = np.array([6.6]) * constants.R_earth
+    pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
     #vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)

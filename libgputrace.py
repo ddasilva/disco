@@ -63,30 +63,68 @@ class FieldModel:
         """Abstract base method to be overridden."""
         raise NotImplementedError("This method should be defined in a subclass")
 
-    def get_dipole_matrix(self, y, eps):
-        """Documentation TODO
+    def get_dipole_table(self, y, grad_step):
+        """Get a table of precomputed dipole values for finite 
+        differencing in RHS.
 
-        Returns a vector of 3x4 matrices.
+        Args
+           y: Differential equation state vector
+           grad_step: finite difference step to generate table with        
+        Returns
+           A dictionary. Keys are like:
+        
+           # at position
+           dipole_table['Bx'] 
+        
+           # forward in the dx direction
+           dipole_table['Bx', 'forward', 'dx'] 
 
-        3 are Bx, By, Bz
-        4 are x->x+dx, y->y+dy, z->z+dz, and no change
+           # backwards in the dy direction
+           dipole_table['Bx', 'backwards', 'dy'] 
         """
         # Launch Kernel to handle rest 
         arr_size = y.shape[0]
-        block_size = 256
+        block_size = 1024
         grid_size = int(math.ceil(arr_size / block_size))
         
         B0s = cp.zeros(arr_size) + self.B0
-        dipole_mat = cp.zeros((arr_size, 3, 4))
+        eps = cp.zeros(arr_size) + grad_step
+        dipole_table = cp.zeros((arr_size, 3, 4, 2))
         
-        dipole_matrix_kernel[grid_size, block_size](
-            arr_size, y, eps, B0s, dipole_mat,
+        dipole_table_kernel[grid_size, block_size](
+            arr_size, y, eps, B0s, dipole_table,
         )
 
-        return dipole_mat
+        # Convert to dictionary to make code more readable
+        # when using it
+        dipole_table_dict = {}
 
+        for v, variable in enumerate(['Bx', 'By', 'Bz']):
+            for i, step in enumerate(['dx', 'dy', 'dz', 'unchanged']):
+                for j, direction in enumerate(['forward', 'backward']):
+                    if step == 'unchanged':
+                        dipole_table_dict[variable, step] = (
+                            dipole_table[:, v, i, j]
+                        )
+                    else:
+                        dipole_table_dict[variable, direction, step] = (
+                            dipole_table[:, v, i, j]
+                        )
+
+        return dipole_table_dict
+                    
     def get_dipole(self, pos_x, pos_y, pos_z, values=("Bx", "By", "Bz")):
-        """Documentation TODO"""
+        """Get dipole values at positions.
+        
+        Args
+          pos_x: x position vector
+          pos_y: y position ector
+          pos_z: z position vector
+          values: what dipole values to request
+        Returns
+           if only one value requested, returns that value
+           otherwise returns a tuple of values
+        """
         pos_r = np.sqrt(pos_x**2 + pos_y**2 + pos_z**2)
         rv = []
 
@@ -172,7 +210,7 @@ class RectilinearFieldModel(FieldModel):
         result = cp.zeros(pos_x.shape)
         return result, neighbors
         arr_size = pos_x.size
-        block_size = 128
+        block_size = 1024
         grid_size = int(math.ceil(arr_size / block_size))
         
         interp_quadlinear_kernel[grid_size, block_size](
@@ -518,7 +556,7 @@ def rhs(t, y, field_model, config):
     pos_y = y[:, 1]
     pos_z = y[:, 2]            
  
-    dipole_mat = field_model.get_dipole_matrix(y, config.grad_step)
+    dipole_table = field_model.get_dipole_table(y, config.grad_step)
     
     # Get B and E at particle position
     Bx, neighbors = field_model.interp(
@@ -533,9 +571,9 @@ def rhs(t, y, field_model, config):
 
     Bx_dip, By_dip, Bz_dip = field_model.get_dipole(pos_x, pos_y, pos_z)
     
-    Bx += dipole_mat[:, 0, 3]
-    By += dipole_mat[:, 1, 3]
-    Bz += dipole_mat[:, 2, 3]
+    Bx += dipole_table['Bx', 'unchanged']
+    By += dipole_table['By', 'unchanged']
+    Bz += dipole_table['Bz', 'unchanged']
     
     Ex, _ = field_model.interp(
         field_model.Ex, t, pos_x, pos_y, pos_z, neighbors=neighbors
@@ -566,8 +604,8 @@ def rhs(t, y, field_model, config):
     dBxdx_back, dx_back_neighbors = field_model.interp(
         field_model.Bx, t, pos_x_back, pos_y, pos_z,
     )
-    dBxdx_forw += field_model.get_dipole(pos_x_forw, pos_y, pos_z, "Bx")
-    dBxdx_back += field_model.get_dipole(pos_x_back, pos_y, pos_z, "Bx")    
+    dBxdx_forw += dipole_table["Bx", "forward", "dx"]
+    dBxdx_back += dipole_table["Bx", "backward", "dx"]
     dBxdx = (dBxdx_forw - dBxdx_back) / (2 * eps)
     
     # dBx/dy
@@ -577,8 +615,8 @@ def rhs(t, y, field_model, config):
     dBxdy_back, dy_back_neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y_back, pos_z,
     )
-    dBxdy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "Bx")
-    dBxdy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "Bx")    
+    dBxdy_forw += dipole_table["Bx", "forward", "dy"]
+    dBxdy_back += dipole_table["Bx", "backward", "dy"]
     dBxdy = (dBxdy_forw - dBxdy_back) / (2 * eps)
 
     # dBx/dz
@@ -588,8 +626,8 @@ def rhs(t, y, field_model, config):
     dBxdz_back, dz_back_neighbors = field_model.interp(
         field_model.Bx, t, pos_x, pos_y, pos_z_back,
     )
-    dBxdz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "Bx")
-    dBxdz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "Bx")
+    dBxdz_forw += dipole_table["Bx", "forward", "dz"]
+    dBxdz_back += dipole_table["Bx", "backward", "dz"]
     dBxdz = (dBxdz_forw - dBxdz_back) / (2 * eps)
     
     # dBy/dx
@@ -601,8 +639,8 @@ def rhs(t, y, field_model, config):
         field_model.By, t, pos_x_back, pos_y, pos_z,
         neighbors=dx_back_neighbors
     )    
-    dBydx_forw += field_model.get_dipole(pos_x_forw, pos_y, pos_z, "By")
-    dBydx_back += field_model.get_dipole(pos_x_back, pos_y, pos_z, "By")    
+    dBydx_forw += dipole_table["By", "forward", "dx"]
+    dBydx_back += dipole_table["By", "backward", "dx"]
     dBydx = (dBydx_forw - dBydx_back) / (2 * eps)
 
     # dBy/dy
@@ -614,8 +652,9 @@ def rhs(t, y, field_model, config):
         field_model.By, t, pos_x, pos_y_back, pos_z,
         neighbors=dy_back_neighbors
     )    
-    dBydy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "By")
-    dBydy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "By")    
+    dBydy_forw += dipole_table["By", "forward", "dy"]
+    dBydy_back += dipole_table["By", "backward", "dy"]
+
     dBydy = (dBydy_forw - dBydy_back) / (2 * eps)
     
     # dBy/dz
@@ -627,8 +666,8 @@ def rhs(t, y, field_model, config):
         field_model.By, t, pos_x, pos_y, pos_z_back, 
         neighbors=dz_back_neighbors
     )
-    dBydz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "By")
-    dBydz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "By")    
+    dBydz_forw += dipole_table["By", "forward", "dz"]
+    dBydz_back += dipole_table["By", "backward", "dz"]
     dBydz = (dBydz_forw - dBydz_back) / (2 * eps)
 
     # dBz/dx
@@ -640,8 +679,8 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x_back, pos_y, pos_z, 
         neighbors=dx_back_neighbors
     )
-    dBzdx_forw += field_model.get_dipole(pos_x_forw, pos_y, pos_z, "Bz")
-    dBzdx_back += field_model.get_dipole(pos_x_back, pos_y, pos_z, "Bz")    
+    dBzdx_forw += dipole_table["Bz", "forward", "dx"]
+    dBzdx_back += dipole_table["Bz", "backward", "dx"]
     dBzdx = (dBzdx_forw - dBzdx_back) / (2 * eps)
 
     # dBz/dy
@@ -653,8 +692,11 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x, pos_y_back, pos_z, 
         neighbors=dy_back_neighbors
     )
-    dBzdy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "Bz")
-    dBzdy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "Bz")    
+    #dBzdy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "Bz")
+    #dBzdy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "Bz")    
+    dBzdy_forw += dipole_table["Bz", "forward", "dy"]
+    dBzdy_back += dipole_table["Bz", "backward", "dy"]
+
     dBzdy = (dBzdy_forw - dBzdy_back) / (2 * eps)
 
     # dBz/dz
@@ -666,8 +708,11 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x, pos_y, pos_z_back, 
         neighbors=dz_back_neighbors
     )
-    dBzdz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "Bz")
-    dBzdz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "Bz")    
+    #dBzdz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "Bz")
+    #dBzdz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "Bz")    
+    dBzdz_forw += dipole_table["Bz", "forward", "dz"]
+    dBzdz_back += dipole_table["Bz", "backward", "dz"]
+
     dBzdz = (dBzdz_forw - dBzdz_back) / (2 * eps)
         
     # in |B| magnitude
@@ -860,37 +905,48 @@ def interp_quadlinear_kernel(
 
 
 @jit.rawkernel()
-def dipole_matrix_kernel(arr_size, y, eps, B0, dipole_mat):
-    """[CUPY KERNEL] Documentaion TODO"""    
+def dipole_table_kernel(arr_size, y, eps, B0, dipole_table):
+    """[CUPY KERNEL] Generates a dipole table for the RHS
+    and finite differencing.
+    """    
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
     
     if idx < arr_size:
         for i in range(4):
-            
-            if i == 0:
-                pos_x = y[idx, 0] + eps
-            else:
-                pos_x = y[idx, 0]
+            for j in range(2):
+                # Set flip direction
+                if j == 0:
+                    flip = 1
+                else:
+                    flip = -1
 
-            if i == 1:
-                pos_y = y[idx, 1] + eps
-            else:
-                pos_y = y[idx, 1]
+                # Get x,y,z coordinates
+                if i == 0:
+                    pos_x = y[idx, 0] + flip * eps[idx]
+                else:
+                    pos_x = y[idx, 0]
+                    
+                if i == 1:
+                    pos_y = y[idx, 1] + flip * eps[idx]
+                else:
+                    pos_y = y[idx, 1]
 
-            if i == 2:
-                pos_z = y[idx, 2] + eps
-            else:
-                pos_z = y[idx, 2]
-            
-            pos_r = (pos_x*pos_x + pos_y*pos_y + pos_z*pos_z)**(1/2)
+                if i == 2:
+                    pos_z = y[idx, 2] + flip * eps[idx]
+                else:
+                    pos_z = y[idx, 2]
+
+                # Calculate dipole euqations
+                pos_r = (pos_x*pos_x + pos_y*pos_y + pos_z*pos_z)**(1/2)
                 
-            Bx = 3 * pos_x * pos_z * B0[idx] / pos_r**5
-            By = 3 * pos_y * pos_z * B0[idx] / pos_r**5
-            Bz = (3 * pos_z*pos_z - pos_r*pos_r) * B0[idx] / pos_r**5
+                Bx = 3 * pos_x * pos_z * B0[idx] / pos_r**5
+                By = 3 * pos_y * pos_z * B0[idx] / pos_r**5
+                Bz = (3 * pos_z*pos_z - pos_r*pos_r) * B0[idx] / pos_r**5
 
-            dipole_mat[idx, 0, i] = Bx
-            dipole_mat[idx, 1, i] = By
-            dipole_mat[idx, 2, i] = Bz
+                # Store
+                dipole_table[idx, 0, i, j] = Bx
+                dipole_table[idx, 1, i, j] = By
+                dipole_table[idx, 2, i, j] = Bz
     
         
 def redim_time(val):
