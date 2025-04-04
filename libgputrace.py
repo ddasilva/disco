@@ -208,9 +208,9 @@ class RectilinearFieldModel(FieldModel):
             neighbors = self.axes.get_neighbors(t, pos_x, pos_y, pos_z)
 
         result = cp.zeros(pos_x.shape)
-        return result, neighbors
+
         arr_size = pos_x.size
-        block_size = 1024
+        block_size = 256
         grid_size = int(math.ceil(arr_size / block_size))
         
         interp_quadlinear_kernel[grid_size, block_size](
@@ -475,9 +475,9 @@ def trace_trajectory(config, particle_state, field_model):
         tolerance = config.rtol * ymag
         scale = 0.84*(tolerance/err)**(1/4)
         mask = (err < config.rtol * ymag) & (t < t_final)
-
+        
         dt = h.copy()
-        dt[~mask] = 0        
+        dt[~mask] = 0
         t += dt
         y[mask] = y_next[mask]
         h = h * scale
@@ -569,8 +569,6 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x, pos_y, pos_z, neighbors=neighbors
     )
 
-    Bx_dip, By_dip, Bz_dip = field_model.get_dipole(pos_x, pos_y, pos_z)
-    
     Bx += dipole_table['Bx', 'unchanged']
     By += dipole_table['By', 'unchanged']
     Bz += dipole_table['Bz', 'unchanged']
