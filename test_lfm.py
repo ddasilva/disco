@@ -60,8 +60,8 @@ def main():
     t_final = 1 * units.s
     config = libgputrace.TraceConfig(
         t_final=t_final,
-        rtol=5e-3,
-        output_freq=5,
+        rtol=1e-2,
+        output_freq=1,
     )
     
     #pos_x = np.linspace(6, 9, 100_000) * constants.R_earth

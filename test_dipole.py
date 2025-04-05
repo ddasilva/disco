@@ -15,7 +15,7 @@ def main():
         t_final=1*units.s,
         h_initial=5*units.ms,
         h_min=1*units.ns,
-        rtol=5e-3,
+        rtol=1e-2,
         output_freq=1,
     )
     
