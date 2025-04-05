@@ -361,34 +361,40 @@ class RK45Coeffs:
     """
     Coefficients of the RK45 Algorithm
     """
-    a2 = 0.25;
-    a3 = 0.375;
-    a4 = 12/13;
-    a6 = 0.5;
-    b21 = 0.25;
-    b31 = 3/32;
-    b32 = 9/32;
-    b41 = 1932/2197;
-    b42 = -7200/2197;
-    b43 = 7296/2197;
-    b51 = 439/216;
-    b52 = -8;
-    b53 = 3680/513;
-    b54 = -845/4104;
-    b61 = -8/27;
-    b62 = 2;
-    b63 = -3544/2565;
-    b64 = 1859/4104;
-    b65 = -11/40;
-    c1 = 25/216;
-    c3 = 1408/2565;
-    c4 = 2197/4104;
-    c5 = -0.20;
-    d1 = 1/360;
-    d3 = -128/4275;
-    d4 = -2197/75240;
-    d5 = 0.02;
-    d6 = 2/55;
+    # Cash-Karp Coefficients
+    a2 = 1/5
+    a3 = 3/10
+    a4 = 3/5
+    a5 = 1
+    a6 = 7/8
+
+    b21 = 1/5
+    b31 = 3/40 
+    b32 = 9/40
+    b41 = 3/10
+    b42 = -9/10
+    b43 = 6/5
+    b51 = -11/54
+    b52 = 5/2
+    b53 = -70/27
+    b54 = 35/27
+    b61 = 1631/55296
+    b62 = 175/512
+    b63 = 575/13824
+    b64 = 44275/110592
+    b65 = 253/4096
+
+    c1 = 37/378
+    c3 = 250/621
+    c4 = 125/594
+    c5 = 0
+    c6 = 512/1771
+    
+    d1 = 2825/27648
+    d3 = 18575/48384
+    d4 = 13525/55296
+    d5 = 277/14336
+    d6 = 1/4
     
 
 @profile
@@ -466,21 +472,9 @@ def trace_trajectory(config, particle_state, field_model):
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
             field_model, config
         )
-                
-        y_next = y + R.c1*k1 + R.c3*k3 + R.c4*k4 + R.c5*k5
-        z_next = y + R.d1*k1 + R.d3*k3 + R.d4*k4 + R.d5*k5 + R.d6*k6
-        err = cp.linalg.norm(y_next - z_next, axis=1)        
 
-        ymag = cp.linalg.norm(y, axis=1)
-        tolerance = config.rtol * ymag
-        scale = 0.84*(tolerance/err)**(1/4)
-        mask = (err < config.rtol * ymag) & (t < t_final)
-        
-        dt = h.copy()
-        dt[~mask] = 0
-        t += dt
-        y[mask] = y_next[mask]
-        h = h * scale
+        num_iterated = do_step(k1, k2, k3, k4, k5, k6, y, h, t, config.rtol, t_final)
+
         all_complete = cp.all(t >= t_final)
         iter_count += 1
 
@@ -514,7 +508,7 @@ def trace_trajectory(config, particle_state, field_model):
         r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
             
         print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% '
-              f'(iter {iter_count}, {mask.sum()} iterated, h mean '
+              f'(iter {iter_count}, {num_iterated} iterated, h mean '
               f'{h.mean():.1E}, r mean {r_mean:.2f})')
         
         sys.stdout.flush()
@@ -554,8 +548,7 @@ def rhs(t, y, field_model, config):
     """
     pos_x = y[:, 0]
     pos_y = y[:, 1]
-    pos_z = y[:, 2]            
- 
+    pos_z = y[:, 2]             
     dipole_table = field_model.get_dipole_table(y, config.grad_step)
     
     # Get B and E at particle position
@@ -586,7 +579,8 @@ def rhs(t, y, field_model, config):
     # Get derivatives from finite difference
     # ---------------------------------------
     eps = config.grad_step
-
+    eps2 = 2 * eps
+    
     pos_x_forw = pos_x + eps
     pos_y_forw = pos_y + eps
     pos_z_forw = pos_z + eps
@@ -604,7 +598,7 @@ def rhs(t, y, field_model, config):
     )
     dBxdx_forw += dipole_table["Bx", "forward", "dx"]
     dBxdx_back += dipole_table["Bx", "backward", "dx"]
-    dBxdx = (dBxdx_forw - dBxdx_back) / (2 * eps)
+    dBxdx = (dBxdx_forw - dBxdx_back) / eps2
     
     # dBx/dy
     dBxdy_forw, dy_forw_neighbors = field_model.interp(
@@ -615,7 +609,7 @@ def rhs(t, y, field_model, config):
     )
     dBxdy_forw += dipole_table["Bx", "forward", "dy"]
     dBxdy_back += dipole_table["Bx", "backward", "dy"]
-    dBxdy = (dBxdy_forw - dBxdy_back) / (2 * eps)
+    dBxdy = (dBxdy_forw - dBxdy_back) / eps2
 
     # dBx/dz
     dBxdz_forw, dz_forw_neighbors = field_model.interp(
@@ -626,7 +620,7 @@ def rhs(t, y, field_model, config):
     )
     dBxdz_forw += dipole_table["Bx", "forward", "dz"]
     dBxdz_back += dipole_table["Bx", "backward", "dz"]
-    dBxdz = (dBxdz_forw - dBxdz_back) / (2 * eps)
+    dBxdz = (dBxdz_forw - dBxdz_back) / eps2
     
     # dBy/dx
     dBydx_forw, _ = field_model.interp(
@@ -639,7 +633,7 @@ def rhs(t, y, field_model, config):
     )    
     dBydx_forw += dipole_table["By", "forward", "dx"]
     dBydx_back += dipole_table["By", "backward", "dx"]
-    dBydx = (dBydx_forw - dBydx_back) / (2 * eps)
+    dBydx = (dBydx_forw - dBydx_back) / eps2
 
     # dBy/dy
     dBydy_forw, _ = field_model.interp(
@@ -653,7 +647,7 @@ def rhs(t, y, field_model, config):
     dBydy_forw += dipole_table["By", "forward", "dy"]
     dBydy_back += dipole_table["By", "backward", "dy"]
 
-    dBydy = (dBydy_forw - dBydy_back) / (2 * eps)
+    dBydy = (dBydy_forw - dBydy_back) / eps2
     
     # dBy/dz
     dBydz_forw, _ = field_model.interp(
@@ -666,7 +660,7 @@ def rhs(t, y, field_model, config):
     )
     dBydz_forw += dipole_table["By", "forward", "dz"]
     dBydz_back += dipole_table["By", "backward", "dz"]
-    dBydz = (dBydz_forw - dBydz_back) / (2 * eps)
+    dBydz = (dBydz_forw - dBydz_back) / eps2
 
     # dBz/dx
     dBzdx_forw, _ = field_model.interp(
@@ -679,7 +673,7 @@ def rhs(t, y, field_model, config):
     )
     dBzdx_forw += dipole_table["Bz", "forward", "dx"]
     dBzdx_back += dipole_table["Bz", "backward", "dx"]
-    dBzdx = (dBzdx_forw - dBzdx_back) / (2 * eps)
+    dBzdx = (dBzdx_forw - dBzdx_back) / eps2
 
     # dBz/dy
     dBzdy_forw, _ = field_model.interp(
@@ -695,7 +689,7 @@ def rhs(t, y, field_model, config):
     dBzdy_forw += dipole_table["Bz", "forward", "dy"]
     dBzdy_back += dipole_table["Bz", "backward", "dy"]
 
-    dBzdy = (dBzdy_forw - dBzdy_back) / (2 * eps)
+    dBzdy = (dBzdy_forw - dBzdy_back) / eps2
 
     # dBz/dz
     dBzdz_forw, _ = field_model.interp(
@@ -711,22 +705,22 @@ def rhs(t, y, field_model, config):
     dBzdz_forw += dipole_table["Bz", "forward", "dz"]
     dBzdz_back += dipole_table["Bz", "backward", "dz"]
 
-    dBzdz = (dBzdz_forw - dBzdz_back) / (2 * eps)
+    dBzdz = (dBzdz_forw - dBzdz_back) / eps2
         
     # in |B| magnitude
     B = cp.sqrt(Bx**2 + By**2 + Bz**2)
 
     dBdx_forw = cp.sqrt(dBxdx_forw**2 + dBydx_forw**2 + dBzdx_forw**2)
     dBdx_back = cp.sqrt(dBxdx_back**2 + dBydx_back**2 + dBzdx_back**2)    
-    dBdx = (dBdx_forw - dBdx_back) / (2 * eps)
+    dBdx = (dBdx_forw - dBdx_back) / eps2
 
     dBdy_forw = cp.sqrt(dBxdy_forw**2 + dBydy_forw**2 + dBzdy_forw**2)
     dBdy_back = cp.sqrt(dBxdy_back**2 + dBydy_back**2 + dBzdy_back**2)    
-    dBdy = (dBdy_forw - dBdy_back) / (2 * eps)
+    dBdy = (dBdy_forw - dBdy_back) / eps2
 
     dBdz_forw = cp.sqrt(dBxdz_forw**2 + dBydz_forw**2 + dBzdz_forw**2)
     dBdz_back = cp.sqrt(dBxdz_back**2 + dBydz_back**2 + dBzdz_back**2)    
-    dBdz = (dBdz_forw - dBdz_back) / (2 * eps)
+    dBdz = (dBdz_forw - dBdz_back) / eps2
 
     # need to account for dimensionalization of magnitude
     if field_model.negative_charge:
@@ -900,8 +894,6 @@ def interp_quadlinear_kernel(
         result[idx] = c4 * (1 - td) + c5 * td
 
 
-
-
 @jit.rawkernel()
 def dipole_table_kernel(arr_size, y, eps, B0, dipole_table):
     """[CUPY KERNEL] Generates a dipole table for the RHS
@@ -946,7 +938,94 @@ def dipole_table_kernel(arr_size, y, eps, B0, dipole_table):
                 dipole_table[idx, 1, i, j] = By
                 dipole_table[idx, 2, i, j] = Bz
     
+
+@profile
+def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final):       
+    """Do a Runge-Kutta Step.
+
+    Args
+      k1-k6: K values for Runge-Kutta
+      y: current state vector
+      h: current vector of step sizes
+      t: current vector of particle times
+      rtol: relative tolerance
+      t_final: final time (dimensionalized)
+    Returns
+      num_iterated: number of particles iterated
+    """
+    arr_size = k1.shape[0]
+    block_size = 1024
+    grid_size = int(math.ceil(arr_size / block_size))
+    y_next = cp.zeros(y.shape)
+    z_next = cp.zeros(y.shape)    
+    rtol_arr = cp.zeros(arr_size) + rtol
+    t_final_arr = cp.zeros(arr_size) + t_final
+    mask = cp.zeros(arr_size, dtype=bool)
         
+    do_step_kernel[grid_size, block_size](
+        arr_size, k1, k2, k3, k4, k5, k6, y, y_next, z_next, h, t,
+        rtol_arr, t_final_arr, mask
+    )
+    
+    num_iterated = mask.sum()
+
+    return num_iterated
+
+
+@jit.rawkernel()
+def do_step_kernel(
+        arr_size, k1, k2, k3, k4, k5, k6,
+        y, y_next, z_next, h, t, rtol, t_final, mask):
+    """[CUPY KERNEL] Do a Runge-Kutta Step
+    
+    Calculates error, selectively steps, and adjusts step size 
+    """
+    idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+    R = RK45Coeffs
+    nstate = 5
+    
+    if idx < arr_size:
+        # Compute thte total error in the position and momentum
+        err_total = 0.0
+        ynorm = 0.0
+        
+        for i in range(nstate):
+            y_next[idx, i] = (
+                y[idx, i]
+                + R.c1*k1[idx, i]
+                + R.c3*k3[idx, i]
+                + R.c4*k4[idx, i]
+                + R.c5*k5[idx, i]
+            )
+            z_next[idx, i] = (
+                y[idx, i]
+                + R.d1*k1[idx, i]
+                + R.d3*k3[idx, i]
+                + R.d4*k4[idx, i]
+                + R.d5*k5[idx, i]
+                + R.d6*k6[idx, i]
+            )
+            err_total += (y_next[idx, i] - z_next[idx, i])**2
+            ynorm += y[idx, i]**2
+            
+        err_total = err_total**(0.5)
+        ynorm = ynorm**(0.5)
+        
+        # Compute the error tolerance
+        tolerance = rtol[idx] * ynorm
+        scale = 0.84*(tolerance/err_total)**(1/4)
+        mask[idx] = (err_total < rtol[idx] * ynorm) & (t[idx] < t_final[idx])
+        
+        # Selectively step particles
+        if mask[idx]:
+            t[idx] += h[idx]
+            
+            for i in range(nstate):
+                y[idx, i] = y_next[idx, i] 
+
+        h[idx] *= scale
+
+                
 def redim_time(val):
     """Redimensionalize a time value.
 

@@ -11,7 +11,7 @@ from scipy.constants import elementary_charge
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-1, h_min=1e-10, rtol=5e-3)
+    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-1, h_min=1e-10, rtol=5e-3, output_freq=1)
     grid_spacing = 0.1
     
     # Setup axes and grid
@@ -60,11 +60,6 @@ def main():
     z_grid = (z_grid / constants.R_earth).to(1).value
     r_grid = np.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
     
-    #Bx = 3 * x_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
-    #By = 3 * y_grid * z_grid * EARTH_DIPOLE_B0 / r_grid**5
-    #Bz = (3 * z_grid**2 - r_grid**2) * EARTH_DIPOLE_B0 / r_grid**5
-    #B = np.sqrt(Bx**2 + By**2 + Bz**2)
-
     Bx = np.zeros_like(x_grid)  # no external field
     By = np.zeros_like(x_grid)
     Bz = np.zeros_like(x_grid)

@@ -67,7 +67,7 @@ def main():
     # Setup particles
     #t_final = t_axis[-2].valeu
     t_final = 1
-    config = libgputrace.TraceConfig(t_final=t_final, rtol=5e-3)
+    config = libgputrace.TraceConfig(t_final=t_final, rtol=5e-3, output_freq=1)
 
     pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
