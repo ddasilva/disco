@@ -11,7 +11,13 @@ from scipy.constants import elementary_charge
 
 def main():
     """Main method of the program."""
-    config = libgputrace.TraceConfig(t_final=1, h_initial=1e-1, h_min=1e-10, rtol=5e-3, output_freq=1)
+    config = libgputrace.TraceConfig(
+        t_final=1*units.s,
+        h_initial=5*units.ms,
+        h_min=1*units.ms,
+        rtol=1e-2,
+        output_freq=1
+    )
     grid_spacing = 0.1
     
     # Setup axes and grid

@@ -5,6 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 from astropy import constants, units
+from astropy.units import Quantity
 from line_profiler import profile
 import numpy as np
 
@@ -12,14 +13,14 @@ import numpy as np
 @dataclass
 class TraceConfig:
     """Configuration for running the tracing code"""
-    t_final: float            # end time of integration
-    t_initial: float = 0      # start time of integration
-    h_initial: float = .1     # initial step size
-    h_min: float = 1e-10      # min step size
-    h_max: float = 1000       # max step size
-    rtol: float = 1e-4        # relative tolerance
-    grad_step: float = 5e-2   # finite diff delta step (half)
-    output_freq: int = 10     # in iterations
+    t_final: Quantity                    # end time of integration
+    t_initial: Quantity = 0 * units.s    # start time of integration
+    h_initial: Quantity = 5 * units.ms   # initial step size
+    h_min: float = .1 * units.ms         # min step size
+    h_max: float = 1 * units.s           # max step size
+    rtol: float = 1e-3                   # relative tolerance
+    grad_step: float = 5e-2              # finite diff delta step (half)
+    output_freq: int = 10                # in iterations
 
 
 class FieldModel:
@@ -284,7 +285,7 @@ class UnstructuredFieldModelPointCloud:
         assert len(z.shape) == 2
                         
         Re = constants.R_earth
-        self.t = cp.array(redim_time(t.to(units.s).value))
+        self.t = cp.array(redim_time(t))
         self.x = cp.array((x / Re).to(1).value)
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
@@ -314,7 +315,7 @@ class RectilinearAxes:
         assert len(z.shape) == 1
         
         Re = constants.R_earth
-        self.t = cp.array(redim_time(t.to(units.s).value))
+        self.t = cp.array(redim_time(t))
         self.x = cp.array((x / Re).to(1).value)
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
@@ -422,9 +423,15 @@ def trace_trajectory(config, particle_state, field_model):
     y[:, 3] = particle_state.ppar
     y[:, 4] = particle_state.magnetic_moment
 
-    h = cp.ones(particle_state.x.size) * config.h_initial
-    h_min = cp.ones(particle_state.x.size) * config.h_min
-    h_max = cp.ones(particle_state.x.size) * config.h_max
+    h = cp.ones(particle_state.x.size) * (
+        redim_time(config.h_initial)
+    )
+    h_min = cp.ones(particle_state.x.size) * (
+        redim_time(config.h_min)
+    )
+    h_max = cp.ones(particle_state.x.size) * (
+        redim_time(config.h_max)
+    )
 
     t_final = redim_time(config.t_final)
     all_complete = False
@@ -506,10 +513,10 @@ def trace_trajectory(config, particle_state, field_model):
             hist_h.append(h.get())
 
         r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
-            
+        h_step = undim_time(float(h.mean())).to(units.ms).value
         print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% '
               f'(iter {iter_count}, {num_iterated} iterated, h mean '
-              f'{h.mean():.1E}, r mean {r_mean:.2f})')
+              f'{h_step:.2f} ms, r mean {r_mean:.2f})')
         
         sys.stdout.flush()
 
@@ -1030,11 +1037,23 @@ def redim_time(val):
     """Redimensionalize a time value.
 
     Args
-      value: value in seconds
+      value: value with units
     Returns
       value in redimensionalized units
     """
     sf = constants.c / constants.R_earth
-    return (sf * val * units.s).to(1).value
+    return (sf * val).to(1).value
+
+                
+def undim_time(val):
+    """Redimensionalize a time value.
+
+    Args
+      value: value in seconds
+    Returns
+      value in redimensionalized units
+    """
+    sf = constants.R_earth / constants.c
+    return val * sf
 
 
