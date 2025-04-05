@@ -68,7 +68,7 @@ def main():
     config = libgputrace.TraceConfig(
         t_final=t_final,
         rtol=1e-2,
-        output_freq=1
+        output_freq=1,
     )
     pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth

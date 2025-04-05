@@ -19,8 +19,8 @@ class TraceConfig:
     h_min: float = .1 * units.ms         # min step size
     h_max: float = 1 * units.s           # max step size
     rtol: float = 1e-3                   # relative tolerance
-    grad_step: float = 5e-2              # finite diff delta step (half)
-    output_freq: int = 10                # in iterations
+    grad_step: float = .1                # finite diff delta step (half)
+    output_freq: int = 5                 # in iterations
 
 
 class FieldModel:
@@ -91,7 +91,7 @@ class FieldModel:
         B0s = cp.zeros(arr_size) + self.B0
         eps = cp.zeros(arr_size) + grad_step
         dipole_table = cp.zeros((arr_size, 3, 4, 2))
-        
+
         dipole_table_kernel[grid_size, block_size](
             arr_size, y, eps, B0s, dipole_table,
         )
@@ -458,11 +458,13 @@ def trace_trajectory(config, particle_state, field_model):
         )
         k2 = h_ * rhs(
             t + h * R.a2,
-            y + h_ * R.b21 * k1, field_model, config
+            y + h_ * R.b21 * k1,
+            field_model, config
         )
         k3 = h_ * rhs(
             t + h * R.a3,
-            y + h_ * (R.b31*k1 + R.b32*k2), field_model, config
+            y + h_ * (R.b31 * k1 + R.b32 * k2),
+            field_model, config
         )
         k4 = h_ * rhs(
             t + h * R.a4,
@@ -470,7 +472,7 @@ def trace_trajectory(config, particle_state, field_model):
             field_model, config
         )
         k5 = h_ * rhs(
-            t + h,
+            t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
             field_model, config
         )
@@ -481,7 +483,6 @@ def trace_trajectory(config, particle_state, field_model):
         )
 
         num_iterated = do_step(k1, k2, k3, k4, k5, k6, y, h, t, config.rtol, t_final)
-
         all_complete = cp.all(t >= t_final)
         iter_count += 1
 
@@ -504,7 +505,9 @@ def trace_trajectory(config, particle_state, field_model):
             tmp_gamma = cp.sqrt(
                 1 + 2 * tmp_B * y[:, 4] + y[:, 3]**2
             )
+            
             tmp_W = tmp_gamma - 1
+            #tmp_W = np.sqrt(2 * tmp_B * y[:, 4] + y[:, 3]**2)
             
             hist_t.append(t.get())
             hist_y.append(y.get())
@@ -691,11 +694,8 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x, pos_y_back, pos_z, 
         neighbors=dy_back_neighbors
     )
-    #dBzdy_forw += field_model.get_dipole(pos_x, pos_y_forw, pos_z, "Bz")
-    #dBzdy_back += field_model.get_dipole(pos_x, pos_y_back, pos_z, "Bz")    
     dBzdy_forw += dipole_table["Bz", "forward", "dy"]
     dBzdy_back += dipole_table["Bz", "backward", "dy"]
-
     dBzdy = (dBzdy_forw - dBzdy_back) / eps2
 
     # dBz/dz
@@ -707,11 +707,8 @@ def rhs(t, y, field_model, config):
         field_model.Bz, t, pos_x, pos_y, pos_z_back, 
         neighbors=dz_back_neighbors
     )
-    #dBzdz_forw += field_model.get_dipole(pos_x, pos_y, pos_z_forw, "Bz")
-    #dBzdz_back += field_model.get_dipole(pos_x, pos_y, pos_z_back, "Bz")    
     dBzdz_forw += dipole_table["Bz", "forward", "dz"]
     dBzdz_back += dipole_table["Bz", "backward", "dz"]
-
     dBzdz = (dBzdz_forw - dBzdz_back) / eps2
         
     # in |B| magnitude
@@ -743,7 +740,7 @@ def rhs(t, y, field_model, config):
     grid_size = int(math.ceil(arr_size / block_size))
     
     dydt = cp.zeros((pos_x.size, 5))
-    
+
     rhs_kernel[grid_size, block_size](
         arr_size, y, dydt, 
         Bx, By, Bz, B,
@@ -833,7 +830,7 @@ def rhs_kernel(
             - M_gamma_Bsparl * (Bxstar * dBdx + Bystar * dBdy + Bzstar * dBdz)
         )
         
-
+        
 @jit.rawkernel()
 def interp_quadlinear_kernel(
         arr_size, result, field,
@@ -999,18 +996,18 @@ def do_step_kernel(
         for i in range(nstate):
             y_next[idx, i] = (
                 y[idx, i]
-                + R.c1*k1[idx, i]
-                + R.c3*k3[idx, i]
-                + R.c4*k4[idx, i]
-                + R.c5*k5[idx, i]
+                + R.c1 * k1[idx, i]
+                + R.c3 * k3[idx, i]
+                + R.c4 * k4[idx, i]
+                + R.c5 * k5[idx, i]
             )
             z_next[idx, i] = (
                 y[idx, i]
-                + R.d1*k1[idx, i]
-                + R.d3*k3[idx, i]
-                + R.d4*k4[idx, i]
-                + R.d5*k5[idx, i]
-                + R.d6*k6[idx, i]
+                + R.d1 * k1[idx, i]
+                + R.d3 * k3[idx, i]
+                + R.d4 * k4[idx, i]
+                + R.d5 * k5[idx, i]
+                + R.d6 * k6[idx, i]
             )
             err_total += (y_next[idx, i] - z_next[idx, i])**2
             ynorm += y[idx, i]**2

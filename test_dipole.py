@@ -14,10 +14,11 @@ def main():
     config = libgputrace.TraceConfig(
         t_final=1*units.s,
         h_initial=5*units.ms,
-        h_min=1*units.ms,
-        rtol=1e-2,
-        output_freq=1
+        h_min=1*units.ns,
+        rtol=5e-3,
+        output_freq=2,
     )
+    
     grid_spacing = 0.1
     
     # Setup axes and grid
@@ -35,8 +36,8 @@ def main():
     print('Grid Shape:', x_grid.shape)
     
     # Instantiate particle state and parallel velocity
-    #pos_x = np.array([6.6]) * constants.R_earth
-    pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
+    pos_x = np.array([6.6]*100_000) * constants.R_earth
+    #pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
     #vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
