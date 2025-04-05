@@ -15,7 +15,7 @@ class TraceConfig:
     """Configuration for running the tracing code"""
     t_final: Quantity                    # end time of integration
     t_initial: Quantity = 0 * units.s    # start time of integration
-    h_initial: Quantity = 5 * units.ms   # initial step size
+    h_initial: Quantity = 1 * units.ms   # initial step size
     h_min: float = .1 * units.ms         # min step size
     h_max: float = 1 * units.s           # max step size
     rtol: float = 1e-3                   # relative tolerance
@@ -87,7 +87,7 @@ class FieldModel:
         arr_size = y.shape[0]
         block_size = 1024
         grid_size = int(math.ceil(arr_size / block_size))
-        
+
         B0s = cp.zeros(arr_size) + self.B0
         eps = cp.zeros(arr_size) + grad_step
         dipole_table = cp.zeros((arr_size, 3, 4, 2))
@@ -191,7 +191,91 @@ class RectilinearFieldModel(FieldModel):
         """
         self.axes = axes
         super().__init__(Bx, By, Bz, Ex, Ey, Ez, mass, charge)
-    
+
+
+    def multi_interp(self, t, y):
+        arr_size = y.shape[0]
+        neighbors = self.axes.get_neighbors(t, y[:, 0], y[:, 1], y[:, 2])
+
+        nx = self.axes.x.size
+        ny = self.axes.y.size
+        nz = self.axes.z.size
+        nt = self.axes.t.size
+
+        nxy = nx * ny        
+        nxyz = nxy * nz
+        nttl = nxyz * nt
+
+        b0 = cp.zeros(arr_size) - self.B0
+        
+        xgr = self.axes.x
+        ygr = self.axes.y
+        zgr = self.axes.z
+        tgr = self.axes.t
+        
+        bxdv = self.Bx.reshape(nttl, order='F')
+        bydv = self.By.reshape(nttl, order='F')
+        bzdv = self.Bz.reshape(nttl, order='F')
+        exdv = self.Ex.reshape(nttl, order='F')
+        eydv = self.Ey.reshape(nttl, order='F')
+        ezdv = self.Ez.reshape(nttl, order='F')
+
+        bx = cp.zeros(arr_size)
+        by = cp.zeros(arr_size)
+        bz = cp.zeros(arr_size)
+        ex = cp.zeros(arr_size)
+        ey = cp.zeros(arr_size)
+        ez = cp.zeros(arr_size)
+        dbxdx = cp.zeros(arr_size)
+        dbxdy = cp.zeros(arr_size)
+        dbxdz = cp.zeros(arr_size) 
+        dbydx = cp.zeros(arr_size)
+        dbydy = cp.zeros(arr_size)
+        dbydz = cp.zeros(arr_size) 
+        dbzdx = cp.zeros(arr_size)
+        dbzdy = cp.zeros(arr_size)
+        dbzdz = cp.zeros(arr_size) 
+        b = cp.zeros(arr_size)
+        dbdx = cp.zeros(arr_size)
+        dbdy = cp.zeros(arr_size)
+        dbdz = cp.zeros(arr_size)
+
+        block_size = 256
+        grid_size = int(math.ceil(arr_size / block_size))
+        ix, iy, iz, it = (
+            neighbors.field_i,
+            neighbors.field_j,
+            neighbors.field_k,
+            neighbors.field_l,            
+        )
+               
+        # print('ix', ix)
+        # print('iy', iy)
+        # print('iz', iz)
+        # print('it', it)
+        
+        linterp4[grid_size, block_size](
+            arr_size, nx, ny, nz, nxy, nxyz, nttl,
+            ix, iy, iz, it,
+            t, y, b0,
+            tgr, xgr, ygr, zgr, 
+            bxdv, bydv, bzdv, exdv, eydv, ezdv,
+            bx, by, bz, ex, ey, ez,
+            dbxdx, dbxdy, dbxdz, 
+            dbydx, dbydy, dbydz, 
+            dbzdx, dbzdy, dbzdz, 
+            b, dbdx, dbdy, dbdz,
+        )
+        
+        return (
+            bx, by, bz, ex, ey, ez,
+            dbxdx, dbxdy, dbxdz, 
+            dbydx, dbydy, dbydz, 
+            dbzdx, dbzdy, dbzdz, 
+            b, dbdx, dbdy, dbdz,
+        )
+        
+        
     def interp(self, field, t, pos_x, pos_y, pos_z, neighbors=None):
         """Interpolate a 3D gridded field at given positions.
         
@@ -328,10 +412,10 @@ class RectilinearAxes:
         """
         return RectilinearNeighbors(
             # side='right' helps first time step
-            field_i=cp.searchsorted(self.t, t, side='right'),
-            field_j=cp.searchsorted(self.x, pos_x),
-            field_k=cp.searchsorted(self.y, pos_y),
-            field_l=cp.searchsorted(self.z, pos_z),
+            field_i=cp.searchsorted(self.x, pos_x) ,
+            field_j=cp.searchsorted(self.y, pos_y) ,
+            field_k=cp.searchsorted(self.z, pos_z) ,
+            field_l=cp.searchsorted(self.t, t, side='right'),
         )        
 
     
@@ -451,69 +535,61 @@ def trace_trajectory(config, particle_state, field_model):
         for i in range(5):
             h_[:, i] = h
 
-        k1 = h_ * rhs(
+        k1, B = rhs(
             t,
             y,
             field_model, config
-        )
-        k2 = h_ * rhs(
+        )        
+        k2, _ = rhs(
             t + h * R.a2,
             y + h_ * R.b21 * k1,
             field_model, config
         )
-        k3 = h_ * rhs(
+        k3, _ = rhs(
             t + h * R.a3,
             y + h_ * (R.b31 * k1 + R.b32 * k2),
             field_model, config
         )
-        k4 = h_ * rhs(
+        k4, _ = rhs(
             t + h * R.a4,
             y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
             field_model, config
         )
-        k5 = h_ * rhs(
+        k5, _ = rhs(
             t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
             field_model, config
         )
-        k6 = h_ * rhs(
+        k6, _ = rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
             field_model, config
         )
+            
+        k1 *= h_
+        k2 *= h_
+        k3 *= h_
+        k4 *= h_
+        k5 *= h_
+        k6 *= h_
+        
+        # Save incremented particles to history
+        if iter_count % config.output_freq == 0:
+            gamma = cp.sqrt(
+                1 + 2 * B * y[:, 4] + y[:, 3]**2
+            )
+            
+            W = gamma - 1            
+            hist_t.append(t.get())
+            hist_y.append(y.get())
+            hist_B.append(B.get())
+            hist_W.append(W.get())
+            hist_h.append(h.get())
 
         num_iterated = do_step(k1, k2, k3, k4, k5, k6, y, h, t, config.rtol, t_final)
         all_complete = cp.all(t >= t_final)
         iter_count += 1
 
-        # Save incremented particles to history
-        if iter_count % config.output_freq == 0:
-            tmp_Bx, _ = field_model.interp(
-                field_model.Bx, t, y[:, 0], y[:, 1], y[:, 2]
-            )
-            tmp_By, _ = field_model.interp(
-                field_model.By, t, y[:, 0], y[:, 1], y[:, 2]
-            )
-            tmp_Bz, _ = field_model.interp(
-                field_model.Bz, t, y[:, 0], y[:, 1], y[:, 2]
-            )
-            Bx_dip, By_dip, Bz_dip = field_model.get_dipole(y[:, 0], y[:, 1], y[:, 2])
-            tmp_B = cp.sqrt((tmp_Bx + Bx_dip)**2 + (tmp_By + By_dip)**2 + (tmp_Bz + Bz_dip)**2)
-            if field_model.negative_charge:
-                tmp_B *= -1
-                
-            tmp_gamma = cp.sqrt(
-                1 + 2 * tmp_B * y[:, 4] + y[:, 3]**2
-            )
-            
-            tmp_W = tmp_gamma - 1
-            #tmp_W = np.sqrt(2 * tmp_B * y[:, 4] + y[:, 3]**2)
-            
-            hist_t.append(t.get())
-            hist_y.append(y.get())
-            hist_B.append(tmp_B.get())
-            hist_W.append(tmp_W.get())
-            hist_h.append(h.get())
 
         r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
         h_step = undim_time(float(h.mean())).to(units.ms).value
@@ -556,175 +632,199 @@ def rhs(t, y, field_model, config):
       dydt: cupy array (nparticles, 4). First three columns are position, fourth
         is parallel momentum
     """
-    pos_x = y[:, 0]
-    pos_y = y[:, 1]
-    pos_z = y[:, 2]             
-    dipole_table = field_model.get_dipole_table(y, config.grad_step)
-    
-    # Get B and E at particle position
-    Bx, neighbors = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y, pos_z,
-    )
-    By, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y, pos_z, neighbors=neighbors
-    )
-    Bz, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y, pos_z, neighbors=neighbors
+
+    (
+        Bx, By, Bz, Ex, Ey, Ez,
+        dBxdx, dBxdy, dBxdz, 
+        dBydx, dBydy, dBydz, 
+        dBzdx, dBzdy, dBzdz, 
+        B, dBdx, dBdy, dBdz
+    ) = (
+        field_model.multi_interp(t, y)
     )
 
-    Bx += dipole_table['Bx', 'unchanged']
-    By += dipole_table['By', 'unchanged']
-    Bz += dipole_table['Bz', 'unchanged']
+    # pos_x = y[:, 0]
+    # pos_y = y[:, 1]
+    # pos_z = y[:, 2]             
+    # dipole_table = field_model.get_dipole_table(y, config.grad_step)
     
-    Ex, _ = field_model.interp(
-        field_model.Ex, t, pos_x, pos_y, pos_z, neighbors=neighbors
-    )
-    Ey, _ = field_model.interp(
-        field_model.Ey, t, pos_x, pos_y, pos_z, neighbors=neighbors
-    )
-    Ez, _ = field_model.interp(
-        field_model.Ez, t, pos_x, pos_y, pos_z, neighbors=neighbors
-    )
-    
-    # Get derivatives from finite difference
-    # ---------------------------------------
-    eps = config.grad_step
-    eps2 = 2 * eps
-    
-    pos_x_forw = pos_x + eps
-    pos_y_forw = pos_y + eps
-    pos_z_forw = pos_z + eps
-    
-    pos_x_back = pos_x - eps
-    pos_y_back = pos_y - eps
-    pos_z_back = pos_z - eps
-    
-    # dBx/dx
-    dBxdx_forw, dx_forw_neighbors = field_model.interp(
-        field_model.Bx, t, pos_x_forw, pos_y, pos_z,
-    )
-    dBxdx_back, dx_back_neighbors = field_model.interp(
-        field_model.Bx, t, pos_x_back, pos_y, pos_z,
-    )
-    dBxdx_forw += dipole_table["Bx", "forward", "dx"]
-    dBxdx_back += dipole_table["Bx", "backward", "dx"]
-    dBxdx = (dBxdx_forw - dBxdx_back) / eps2
-    
-    # dBx/dy
-    dBxdy_forw, dy_forw_neighbors = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y_forw, pos_z,
-    )
-    dBxdy_back, dy_back_neighbors = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y_back, pos_z,
-    )
-    dBxdy_forw += dipole_table["Bx", "forward", "dy"]
-    dBxdy_back += dipole_table["Bx", "backward", "dy"]
-    dBxdy = (dBxdy_forw - dBxdy_back) / eps2
+    # # # # Get B and E at particle position
+    # Bx2, neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x, pos_y, pos_z,
+    # )
+    # By2, _ = field_model.interp(
+    #     field_model.By, t, pos_x, pos_y, pos_z, 
+    # )
+    # Bz2, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x, pos_y, pos_z, neighbors=neighbors
+    # )
 
-    # dBx/dz
-    dBxdz_forw, dz_forw_neighbors = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y, pos_z_forw,
-    )
-    dBxdz_back, dz_back_neighbors = field_model.interp(
-        field_model.Bx, t, pos_x, pos_y, pos_z_back,
-    )
-    dBxdz_forw += dipole_table["Bx", "forward", "dz"]
-    dBxdz_back += dipole_table["Bx", "backward", "dz"]
-    dBxdz = (dBxdz_forw - dBxdz_back) / eps2
+    # Bx2 += dipole_table['Bx', 'unchanged']
+    # By2 += dipole_table['By', 'unchanged']
+    # Bz2 += dipole_table['Bz', 'unchanged']
     
-    # dBy/dx
-    dBydx_forw, _ = field_model.interp(
-        field_model.By, t, pos_x_forw, pos_y, pos_z,
-        neighbors=dx_forw_neighbors
-    )
-    dBydx_back, _ = field_model.interp(
-        field_model.By, t, pos_x_back, pos_y, pos_z,
-        neighbors=dx_back_neighbors
-    )    
-    dBydx_forw += dipole_table["By", "forward", "dx"]
-    dBydx_back += dipole_table["By", "backward", "dx"]
-    dBydx = (dBydx_forw - dBydx_back) / eps2
-
-    # dBy/dy
-    dBydy_forw, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y_forw, pos_z,
-        neighbors=dy_forw_neighbors
-    )
-    dBydy_back, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y_back, pos_z,
-        neighbors=dy_back_neighbors
-    )    
-    dBydy_forw += dipole_table["By", "forward", "dy"]
-    dBydy_back += dipole_table["By", "backward", "dy"]
-
-    dBydy = (dBydy_forw - dBydy_back) / eps2
+    # print('------------------')
+    # print('Bx')
+    # print(Bx)
+    # print(Bx2)
+    # print()
+    # print('By')
+    # print(By)
+    # print(By2)
+    # print()
+    # print('Bz')
+    # print(Bz)
+    # print(Bz2)
     
-    # dBy/dz
-    dBydz_forw, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y, pos_z_forw,
-        neighbors=dz_forw_neighbors
-    )
-    dBydz_back, _ = field_model.interp(
-        field_model.By, t, pos_x, pos_y, pos_z_back, 
-        neighbors=dz_back_neighbors
-    )
-    dBydz_forw += dipole_table["By", "forward", "dz"]
-    dBydz_back += dipole_table["By", "backward", "dz"]
-    dBydz = (dBydz_forw - dBydz_back) / eps2
+    # Ex, _ = field_model.interp(
+    #     field_model.Ex, t, pos_x, pos_y, pos_z, neighbors=neighbors
+    # )
+    # Ey, _ = field_model.interp(
+    #     field_model.Ey, t, pos_x, pos_y, pos_z, neighbors=neighbors
+    # )
+    # Ez, _ = field_model.interp(
+    #     field_model.Ez, t, pos_x, pos_y, pos_z, neighbors=neighbors
+    # )
+    
+    # # Get derivatives from finite difference
+    # # ---------------------------------------
+    # eps = config.grad_step
+    # eps2 = 2 * eps
+    
+    # pos_x_forw = pos_x + eps
+    # pos_y_forw = pos_y + eps
+    # pos_z_forw = pos_z + eps
+    
+    # pos_x_back = pos_x - eps
+    # pos_y_back = pos_y - eps
+    # pos_z_back = pos_z - eps
+    
+    # # dBx/dx
+    # dBxdx_forw, dx_forw_neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x_forw, pos_y, pos_z,
+    # )
+    # dBxdx_back, dx_back_neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x_back, pos_y, pos_z,
+    # )
+    # dBxdx_forw += dipole_table["Bx", "forward", "dx"]
+    # dBxdx_back += dipole_table["Bx", "backward", "dx"]
+    # dBxdx = (dBxdx_forw - dBxdx_back) / eps2
+    
+    # # dBx/dy
+    # dBxdy_forw, dy_forw_neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x, pos_y_forw, pos_z,
+    # )
+    # dBxdy_back, dy_back_neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x, pos_y_back, pos_z,
+    # )
+    # dBxdy_forw += dipole_table["Bx", "forward", "dy"]
+    # dBxdy_back += dipole_table["Bx", "backward", "dy"]
+    # dBxdy = (dBxdy_forw - dBxdy_back) / eps2
 
-    # dBz/dx
-    dBzdx_forw, _ = field_model.interp(
-        field_model.Bz, t, pos_x_forw, pos_y, pos_z, 
-        neighbors=dx_forw_neighbors
-    )
-    dBzdx_back, _ = field_model.interp(
-        field_model.Bz, t, pos_x_back, pos_y, pos_z, 
-        neighbors=dx_back_neighbors
-    )
-    dBzdx_forw += dipole_table["Bz", "forward", "dx"]
-    dBzdx_back += dipole_table["Bz", "backward", "dx"]
-    dBzdx = (dBzdx_forw - dBzdx_back) / eps2
+    # # dBx/dz
+    # dBxdz_forw, dz_forw_neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x, pos_y, pos_z_forw,
+    # )
+    # dBxdz_back, dz_back_neighbors = field_model.interp(
+    #     field_model.Bx, t, pos_x, pos_y, pos_z_back,
+    # )
+    # dBxdz_forw += dipole_table["Bx", "forward", "dz"]
+    # dBxdz_back += dipole_table["Bx", "backward", "dz"]
+    # dBxdz = (dBxdz_forw - dBxdz_back) / eps2
+    
+    # # dBy/dx
+    # dBydx_forw, _ = field_model.interp(
+    #     field_model.By, t, pos_x_forw, pos_y, pos_z,
+    #     neighbors=dx_forw_neighbors
+    # )
+    # dBydx_back, _ = field_model.interp(
+    #     field_model.By, t, pos_x_back, pos_y, pos_z,
+    #     neighbors=dx_back_neighbors
+    # )    
+    # dBydx_forw += dipole_table["By", "forward", "dx"]
+    # dBydx_back += dipole_table["By", "backward", "dx"]
+    # dBydx = (dBydx_forw - dBydx_back) / eps2
 
-    # dBz/dy
-    dBzdy_forw, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y_forw, pos_z, 
-        neighbors=dy_forw_neighbors
-    )
-    dBzdy_back, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y_back, pos_z, 
-        neighbors=dy_back_neighbors
-    )
-    dBzdy_forw += dipole_table["Bz", "forward", "dy"]
-    dBzdy_back += dipole_table["Bz", "backward", "dy"]
-    dBzdy = (dBzdy_forw - dBzdy_back) / eps2
+    # # dBy/dy
+    # dBydy_forw, _ = field_model.interp(
+    #     field_model.By, t, pos_x, pos_y_forw, pos_z,
+    #     neighbors=dy_forw_neighbors
+    # )
+    # dBydy_back, _ = field_model.interp(
+    #     field_model.By, t, pos_x, pos_y_back, pos_z,
+    #     neighbors=dy_back_neighbors
+    # )    
+    # dBydy_forw += dipole_table["By", "forward", "dy"]
+    # dBydy_back += dipole_table["By", "backward", "dy"]
 
-    # dBz/dz
-    dBzdz_forw, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y, pos_z_forw, 
-        neighbors=dz_forw_neighbors
-    )
-    dBzdz_back, _ = field_model.interp(
-        field_model.Bz, t, pos_x, pos_y, pos_z_back, 
-        neighbors=dz_back_neighbors
-    )
-    dBzdz_forw += dipole_table["Bz", "forward", "dz"]
-    dBzdz_back += dipole_table["Bz", "backward", "dz"]
-    dBzdz = (dBzdz_forw - dBzdz_back) / eps2
+    # dBydy = (dBydy_forw - dBydy_back) / eps2
+    
+    # # dBy/dz
+    # dBydz_forw, _ = field_model.interp(
+    #     field_model.By, t, pos_x, pos_y, pos_z_forw,
+    #     neighbors=dz_forw_neighbors
+    # )
+    # dBydz_back, _ = field_model.interp(
+    #     field_model.By, t, pos_x, pos_y, pos_z_back, 
+    #     neighbors=dz_back_neighbors
+    # )
+    # dBydz_forw += dipole_table["By", "forward", "dz"]
+    # dBydz_back += dipole_table["By", "backward", "dz"]
+    # dBydz = (dBydz_forw - dBydz_back) / eps2
+
+    # # dBz/dx
+    # dBzdx_forw, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x_forw, pos_y, pos_z, 
+    #     neighbors=dx_forw_neighbors
+    # )
+    # dBzdx_back, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x_back, pos_y, pos_z, 
+    #     neighbors=dx_back_neighbors
+    # )
+    # dBzdx_forw += dipole_table["Bz", "forward", "dx"]
+    # dBzdx_back += dipole_table["Bz", "backward", "dx"]
+    # dBzdx = (dBzdx_forw - dBzdx_back) / eps2
+
+    # # dBz/dy
+    # dBzdy_forw, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x, pos_y_forw, pos_z, 
+    #     neighbors=dy_forw_neighbors
+    # )
+    # dBzdy_back, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x, pos_y_back, pos_z, 
+    #     neighbors=dy_back_neighbors
+    # )
+    # dBzdy_forw += dipole_table["Bz", "forward", "dy"]
+    # dBzdy_back += dipole_table["Bz", "backward", "dy"]
+    # dBzdy = (dBzdy_forw - dBzdy_back) / eps2
+
+    # # dBz/dz
+    # dBzdz_forw, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x, pos_y, pos_z_forw, 
+    #     neighbors=dz_forw_neighbors
+    # )
+    # dBzdz_back, _ = field_model.interp(
+    #     field_model.Bz, t, pos_x, pos_y, pos_z_back, 
+    #     neighbors=dz_back_neighbors
+    # )
+    # dBzdz_forw += dipole_table["Bz", "forward", "dz"]
+    # dBzdz_back += dipole_table["Bz", "backward", "dz"]
+    # dBzdz = (dBzdz_forw - dBzdz_back) / eps2
         
-    # in |B| magnitude
-    B = cp.sqrt(Bx**2 + By**2 + Bz**2)
+    # # in |B| magnitude
+    # B2 = cp.sqrt(Bx**2 + By**2 + Bz**2)
 
-    dBdx_forw = cp.sqrt(dBxdx_forw**2 + dBydx_forw**2 + dBzdx_forw**2)
-    dBdx_back = cp.sqrt(dBxdx_back**2 + dBydx_back**2 + dBzdx_back**2)    
-    dBdx = (dBdx_forw - dBdx_back) / eps2
+    # dBdx_forw = cp.sqrt(dBxdx_forw**2 + dBydx_forw**2 + dBzdx_forw**2)
+    # dBdx_back = cp.sqrt(dBxdx_back**2 + dBydx_back**2 + dBzdx_back**2)    
+    # dBdx2 = (dBdx_forw - dBdx_back) / eps2
 
-    dBdy_forw = cp.sqrt(dBxdy_forw**2 + dBydy_forw**2 + dBzdy_forw**2)
-    dBdy_back = cp.sqrt(dBxdy_back**2 + dBydy_back**2 + dBzdy_back**2)    
-    dBdy = (dBdy_forw - dBdy_back) / eps2
+    # dBdy_forw = cp.sqrt(dBxdy_forw**2 + dBydy_forw**2 + dBzdy_forw**2)
+    # dBdy_back = cp.sqrt(dBxdy_back**2 + dBydy_back**2 + dBzdy_back**2)    
+    # dBdy2 = (dBdy_forw - dBdy_back) / eps2
 
-    dBdz_forw = cp.sqrt(dBxdz_forw**2 + dBydz_forw**2 + dBzdz_forw**2)
-    dBdz_back = cp.sqrt(dBxdz_back**2 + dBydz_back**2 + dBzdz_back**2)    
-    dBdz = (dBdz_forw - dBdz_back) / eps2
+    # dBdz_forw = cp.sqrt(dBxdz_forw**2 + dBydz_forw**2 + dBzdz_forw**2)
+    # dBdz_back = cp.sqrt(dBxdz_back**2 + dBydz_back**2 + dBzdz_back**2)    
+    # dBdz2 = (dBdz_forw - dBdz_back) / eps2
 
     # need to account for dimensionalization of magnitude
     if field_model.negative_charge:
@@ -732,14 +832,29 @@ def rhs(t, y, field_model, config):
         dBdx *= -1
         dBdy *= -1
         dBdz *= -1        
-    
+
+    # print('Bx')
+    # print(Bx )
+    # print(Bx2)
+
+    # print('By')
+    # print(By)
+    # print(By2)
+    # print("Bz")
+    # print(Bz)
+    # print(Bz2)
+    # print("B")
+    # print(B)
+    # print(B2)
+    # raise SystemExit(1)
+        
     # Launch Kernel to handle rest of RHS
     # --------------------------------------
-    arr_size = pos_x.size
+    arr_size = y.shape[0]
     block_size = 256
     grid_size = int(math.ceil(arr_size / block_size))
     
-    dydt = cp.zeros((pos_x.size, 5))
+    dydt = cp.zeros((arr_size, 5))
 
     rhs_kernel[grid_size, block_size](
         arr_size, y, dydt, 
@@ -749,7 +864,7 @@ def rhs(t, y, field_model, config):
         dBxdy, dBxdz, dBydx, dBydz, dBzdx, dBzdy,
     )
 
-    return dydt
+    return dydt, B
 
 
 @jit.rawkernel()
@@ -830,6 +945,300 @@ def rhs_kernel(
             - M_gamma_Bsparl * (Bxstar * dBdx + Bystar * dBdy + Bzstar * dBdz)
         )
         
+
+@jit.rawkernel()
+def linterp4(
+        arr_size, nx, ny, nz, nxy, nxyz, nttl,
+        ix, iy, iz, it,
+        t, y, b0,
+        tgr, xgr, ygr, zgr, 
+        bxdv, bydv, bzdv, exdv, eydv, ezdv,
+        bx, by, bz, ex, ey, ez,
+        dbxdx, dbxdy, dbxdz, 
+        dbydx, dbydy, dbydz, 
+        dbzdx, dbzdy, dbzdz, 
+        b, dbdx, dbdy, dbdz,
+):
+    idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+    
+    if idx < arr_size:
+        dx = xgr[ix[idx] + 1] - xgr[ix[idx]]
+        dy = ygr[iy[idx] + 1] - ygr[iy[idx]]
+        dz = zgr[iz[idx] + 1] - zgr[iz[idx]]
+        dt = tgr[it[idx] + 1] - tgr[it[idx]]
+
+	# ...determine memory location corresponding to ix,iy,iz,it
+	#	and ix+1,iy+1,iz+1,it+1...        
+        #jjjj= ix + iy*nx + iz*nxy + it*nxyz + 1
+        jjjj= ix[idx] + iy[idx]*nx + iz[idx]*nxy + it[idx]*nxyz + 1          
+        ijjj= jjjj - 1
+        jijj= jjjj - nx
+        iijj= jijj - 1
+        jjij= jjjj - nxy
+        ijij= jjij - 1
+        jiij= jijj - nxy
+        iiij= jiij - 1
+        jjji= jjjj - nxyz
+        ijji= ijjj - nxyz
+        jiji= jijj - nxyz
+        iiji= iijj - nxyz
+        jjii= jjij - nxyz
+        ijii= ijij - nxyz
+        jiii= jiij - nxyz
+        iiii= iiij - nxyz
+
+        #...calculate weighting factors...
+        w1=cp.abs(y[idx, 0] - xgr[ix[idx]])/dx
+        w1m=1.-w1
+        w2=cp.abs(y[idx, 1] - ygr[iy[idx]])/dy
+        w2m=1.-w2
+        w3=cp.abs(y[idx, 2] - zgr[iz[idx]])/dz
+        w3m=1.-w3
+        w4=cp.abs(t[idx] - tgr[it[idx]])/dt
+        w4m=1.-w4
+        
+        w1m2m=w1m*w2m
+        w12m=w1*w2m
+        w12=w1*w2
+        w1m2=w1m*w2
+        
+        w1m2m3m=w1m2m*w3m
+        w12m3m=w12m*w3m
+        w123m=w12*w3m
+        w1m23m=w1m2*w3m
+        
+        w1m2m3=w1m2m*w3
+        w12m3=w12m*w3
+        w123=w12*w3
+        w1m23=w1m2*w3
+        
+        ww01=w1m2m3m*w4m
+        ww02=w12m3m*w4m
+        ww03=w123m*w4m
+        ww04=w1m23m*w4m
+        ww05=w1m2m3*w4m
+        ww06=w12m3*w4m
+        ww07=w123*w4m
+        ww08=w1m23*w4m
+        ww09=w1m2m3m*w4
+        ww10=w12m3m*w4
+        ww11=w123m*w4
+        ww12=w1m23m*w4
+        ww13=w1m2m3*w4
+        ww14=w12m3*w4
+        ww15=w123*w4
+        ww16=w1m23*w4
+        
+        #..define some factors often repeated in the interpolations...
+        r = (y[idx, 0]**2 + y[idx, 1]**2 + y[idx, 2]**2)**(0.5)
+        r2=r*r
+        bfac1=3.*b0[idx]/r2/r2/r
+        bfac2=5.*bfac1/r2
+        
+        # ...interpolate field components...
+        bx[idx]=(
+            bxdv[iiii]*ww01+bxdv[jiii]*ww02+bxdv[jjii]*ww03
+            +bxdv[ijii]*ww04+bxdv[iiji]*ww05+bxdv[jiji]*ww06
+            +bxdv[jjji]*ww07+bxdv[ijji]*ww08+bxdv[iiij]*ww09
+            +bxdv[jiij]*ww10+bxdv[jjij]*ww11+bxdv[ijij]*ww12
+            +bxdv[iijj]*ww13+bxdv[jijj]*ww14+bxdv[jjjj]*ww15
+            +bxdv[ijjj]*ww16 
+            -bfac1*y[idx, 0]*y[idx, 2]
+        )
+
+        by[idx]=(
+            bydv[iiii]*ww01+bydv[jiii]*ww02+bydv[jjii]*ww03
+            +bydv[ijii]*ww04+bydv[iiji]*ww05+bydv[jiji]*ww06
+            +bydv[jjji]*ww07+bydv[ijji]*ww08+bydv[iiij]*ww09
+            +bydv[jiij]*ww10+bydv[jjij]*ww11+bydv[ijij]*ww12
+            +bydv[iijj]*ww13+bydv[jijj]*ww14+bydv[jjjj]*ww15
+            +bydv[ijjj]*ww16 
+            -bfac1*y[idx, 1]*y[idx, 2]
+        )
+        
+        bz[idx]=(
+            bzdv[iiii]*ww01+bzdv[jiii]*ww02+bzdv[jjii]*ww03
+            +bzdv[ijii]*ww04+bzdv[iiji]*ww05+bzdv[jiji]*ww06
+            +bzdv[jjji]*ww07+bzdv[ijji]*ww08+bzdv[iiij]*ww09
+            +bzdv[jiij]*ww10+bzdv[jjij]*ww11+bzdv[ijij]*ww12
+            +bzdv[iijj]*ww13+bzdv[jijj]*ww14+bzdv[jjjj]*ww15
+            +bzdv[ijjj]*ww16 
+            -bfac1*y[idx, 2]*y[idx, 2] + b0[idx]/r2/r
+        )
+
+        ex[idx]=(
+            exdv[iiii]*ww01+exdv[jiii]*ww02+exdv[jjii]*ww03
+            +exdv[ijii]*ww04+exdv[iiji]*ww05+exdv[jiji]*ww06
+            +exdv[jjji]*ww07+exdv[ijji]*ww08+exdv[iiij]*ww09
+            +exdv[jiij]*ww10+exdv[jjij]*ww11+exdv[ijij]*ww12
+            +exdv[iijj]*ww13+exdv[jijj]*ww14+exdv[jjjj]*ww15
+            +exdv[ijjj]*ww16
+        )
+        
+        ey[idx]=(
+            eydv[iiii]*ww01+eydv[jiii]*ww02+eydv[jjii]*ww03
+            +eydv[ijii]*ww04+eydv[iiji]*ww05+eydv[jiji]*ww06
+            +eydv[jjji]*ww07+eydv[ijji]*ww08+eydv[iiij]*ww09
+            +eydv[jiij]*ww10+eydv[jjij]*ww11+eydv[ijij]*ww12
+            +eydv[iijj]*ww13+eydv[jijj]*ww14+eydv[jjjj]*ww15
+            +eydv[ijjj]*ww16
+        )
+        
+        ez[idx]=(
+            ezdv[iiii]*ww01+ezdv[jiii]*ww02+ezdv[jjii]*ww03
+            +ezdv[ijii]*ww04+ezdv[iiji]*ww05+ezdv[jiji]*ww06
+            +ezdv[jjji]*ww07+ezdv[ijji]*ww08+ezdv[iiij]*ww09
+            +ezdv[jiij]*ww10+ezdv[jjij]*ww11+ezdv[ijij]*ww12
+            +ezdv[iijj]*ww13+ezdv[jijj]*ww14+ezdv[jjjj]*ww15
+            +ezdv[ijjj]*ww16
+        )
+        
+        #...calculate btot and field derivatives to 1st order...
+        # ...first form more intermediate weights...
+        w2m3m4m=w2m*w3m*w4m
+        w23m4m=w2*w3m*w4m
+        w2m34m=w2m*w3*w4m
+        w234m=w2*w3*w4m
+        w2m3m4=w2m*w3m*w4
+        w23m4=w2*w3m*w4
+        w2m34=w2m*w3*w4
+        w234=w2*w3*w4
+        
+        w1m3m4m=w1m*w3m*w4m
+        w13m4m=w1*w3m*w4m
+        w1m34m=w1m*w3*w4m
+        w134m=w1*w3*w4m
+        w1m3m4=w1m*w3m*w4
+        w13m4=w1*w3m*w4
+        w1m34=w1m*w3*w4
+        w134=w1*w3*w4
+    
+        w1m2m4m=w1m2m*w4m
+        w12m4m=w12m*w4m
+        w1m24m=w1m2*w4m
+        w124m=w12*w4m
+        w1m2m4=w1m2m*w4
+        w12m4=w12m*w4
+        w1m24=w1m2*w4
+        w124=w12*w4
+        
+        #...calculate component derivatives...
+        dbxdx[idx]=(
+            ((bxdv[jiii]-bxdv[iiii])*w2m3m4m
+            +(bxdv[jjii]-bxdv[ijii])*w23m4m
+            +(bxdv[jiji]-bxdv[iiji])*w2m34m
+            +(bxdv[jjji]-bxdv[ijji])*w234m
+            +(bxdv[jiij]-bxdv[iiij])*w2m3m4
+            +(bxdv[jjij]-bxdv[ijij])*w23m4
+            +(bxdv[jijj]-bxdv[iijj])*w2m34
+            +(bxdv[jjjj]-bxdv[ijjj])*w234)/dx
+            -bfac1*y[idx, 2]+bfac2*y[idx, 0]*y[idx, 0]*y[idx, 2]
+        )
+        
+        dbxdy[idx]=(
+            ((bxdv[ijii]-bxdv[iiii])*w1m3m4m
+             +(bxdv[jjii]-bxdv[jiii])*w13m4m
+             +(bxdv[ijji]-bxdv[iiji])*w1m34m
+             +(bxdv[jjji]-bxdv[jiji])*w134m
+             +(bxdv[ijij]-bxdv[iiij])*w1m3m4
+             +(bxdv[jjij]-bxdv[jiij])*w13m4
+             +(bxdv[ijjj]-bxdv[iijj])*w1m34
+             +(bxdv[jjjj]-bxdv[jijj])*w134)/dy
+            +bfac2*y[idx, 0]*y[idx, 1]*y[idx, 2]
+        )
+        
+        dbxdz[idx]=(
+            ((bxdv[iiji]-bxdv[iiii])*w1m2m4m
+             +(bxdv[jiji]-bxdv[jiii])*w12m4m
+             +(bxdv[ijji]-bxdv[ijii])*w1m24m
+             +(bxdv[jjji]-bxdv[jjii])*w124m
+             +(bxdv[iijj]-bxdv[iiij])*w1m2m4
+             +(bxdv[jijj]-bxdv[jiij])*w12m4
+             +(bxdv[ijjj]-bxdv[ijij])*w1m24
+            +(bxdv[jjjj]-bxdv[jjij])*w124)/dz
+            -bfac1*y[idx, 0]+bfac2*y[idx, 0]*y[idx, 2]*y[idx, 2]
+        )
+        
+        dbydx[idx]=(
+            ((bydv[jiii]-bydv[iiii])*w2m3m4m
+             +(bydv[jjii]-bydv[ijii])*w23m4m
+             +(bydv[jiji]-bydv[iiji])*w2m34m
+             +(bydv[jjji]-bydv[ijji])*w234m
+             +(bydv[jiij]-bydv[iiij])*w2m3m4
+             +(bydv[jjij]-bydv[ijij])*w23m4
+             +(bydv[jijj]-bydv[iijj])*w2m34
+             +(bydv[jjjj]-bydv[ijjj])*w234)/dx
+            +bfac2*y[idx, 1]*y[idx, 2]*y[idx, 0]
+        )
+        
+        dbydy[idx]=(
+            ((bydv[ijii]-bydv[iiii])*w1m3m4m
+             +(bydv[jjii]-bydv[jiii])*w13m4m
+             +(bydv[ijji]-bydv[iiji])*w1m34m
+             +(bydv[jjji]-bydv[jiji])*w134m
+             +(bydv[ijij]-bydv[iiij])*w1m3m4
+             +(bydv[jjij]-bydv[jiij])*w13m4
+             +(bydv[ijjj]-bydv[iijj])*w1m34
+             +(bydv[jjjj]-bydv[jijj])*w134)/dy
+            -bfac1*y[idx, 2]+bfac2*y[idx, 1]*y[idx, 1]*y[idx, 2]
+        )
+        
+        dbydz[idx]=(
+            ((bydv[iiji]-bydv[iiii])*w1m2m4m
+             +(bydv[jiji]-bydv[jiii])*w12m4m
+             +(bydv[ijji]-bydv[ijii])*w1m24m
+             +(bydv[jjji]-bydv[jjii])*w124m
+             +(bydv[iijj]-bydv[iiij])*w1m2m4
+             +(bydv[jijj]-bydv[jiij])*w12m4
+             +(bydv[ijjj]-bydv[ijij])*w1m24
+             +(bydv[jjjj]-bydv[jjij])*w124)/dz
+            -bfac1*y[idx, 1]+bfac2*y[idx, 2]*y[idx, 2]*y[idx, 1]
+        )
+        
+        dbzdx[idx]=(
+            ((bzdv[jiii]-bzdv[iiii])*w2m3m4m
+             +(bzdv[jjii]-bzdv[ijii])*w23m4m
+             +(bzdv[jiji]-bzdv[iiji])*w2m34m
+             +(bzdv[jjji]-bzdv[ijji])*w234m
+             +(bzdv[jiij]-bzdv[iiij])*w2m3m4
+             +(bzdv[jjij]-bzdv[ijij])*w23m4
+             +(bzdv[jijj]-bzdv[iijj])*w2m34
+             +(bzdv[jjjj]-bzdv[ijjj])*w234)/dx
+            -bfac1*y[idx, 0]+bfac2*y[idx, 0]*y[idx, 2]*y[idx, 2]
+        )
+        
+        dbzdy[idx]=(
+            ((bzdv[ijii]-bzdv[iiii])*w1m3m4m
+             +(bzdv[jjii]-bzdv[jiii])*w13m4m
+             +(bzdv[ijji]-bzdv[iiji])*w1m34m
+             +(bzdv[jjji]-bzdv[jiji])*w134m
+             +(bzdv[ijij]-bzdv[iiij])*w1m3m4
+             +(bzdv[jjij]-bzdv[jiij])*w13m4
+             +(bzdv[ijjj]-bzdv[iijj])*w1m34
+             +(bzdv[jjjj]-bzdv[jijj])*w134)/dy
+            -bfac1*y[idx, 1]+bfac2*y[idx, 1]*y[idx, 2]*y[idx, 2]
+        )
+        
+        dbzdz[idx]=(
+            ((bzdv[iiji]-bzdv[iiii])*w1m2m4m
+             +(bzdv[jiji]-bzdv[jiii])*w12m4m
+             +(bzdv[ijji]-bzdv[ijii])*w1m24m
+             +(bzdv[jjji]-bzdv[jjii])*w124m
+             +(bzdv[iijj]-bzdv[iiij])*w1m2m4
+             +(bzdv[jijj]-bzdv[jiij])*w12m4
+             +(bzdv[ijjj]-bzdv[ijij])*w1m24
+             +(bzdv[jjjj]-bzdv[jjij])*w124)/dz
+            -3.*bfac1*y[idx, 2]+bfac2*y[idx, 2]*y[idx, 2]*y[idx, 2]
+        )
+        
+        #      ...calculate btot...
+        b[idx]=(bx[idx]**2.+by[idx]**2.+bz[idx]**2.)**(0.5)
+        
+        # ...calculate derivatives of btot...
+        dbdx[idx]=(bx[idx]*dbxdx[idx] + by[idx]*dbydx[idx] + bz[idx]*dbzdx[idx])/b[idx]
+        dbdy[idx]=(bx[idx]*dbxdy[idx] + by[idx]*dbydy[idx] + bz[idx]*dbzdy[idx])/b[idx]
+        dbdz[idx]=(bx[idx]*dbxdz[idx] + by[idx]*dbydz[idx] + bz[idx]*dbzdz[idx])/b[idx]
+
         
 @jit.rawkernel()
 def interp_quadlinear_kernel(
@@ -849,28 +1258,28 @@ def interp_quadlinear_kernel(
     
     if idx < arr_size:
         # Find indices of the surrounding grid points
-        t0, t1 = field_i[idx] - 1, field_i[idx]
-        x0, x1 = field_j[idx] - 1, field_j[idx]
-        y0, y1 = field_k[idx] - 1, field_k[idx]
-        z0, z1 = field_l[idx] - 1, field_l[idx]
+        x0, x1 = field_i[idx] - 1, field_i[idx]
+        y0, y1 = field_j[idx] - 1, field_j[idx]
+        z0, z1 = field_k[idx] - 1, field_k[idx]
+        t0, t1 = field_l[idx] - 1, field_l[idx]
         
         # Get the surrounding values
-        c0000 = field[t0, x0, y0, z0]
-        c0001 = field[t0, x0, y0, z1]
-        c0010 = field[t0, x0, y1, z0]
-        c0011 = field[t0, x0, y1, z1]
-        c0100 = field[t0, x1, y0, z0]
-        c0101 = field[t0, x1, y0, z1]
-        c0110 = field[t0, x1, y1, z0]
-        c0111 = field[t0, x1, y1, z1]
-        c1000 = field[t1, x0, y0, z0]
-        c1001 = field[t1, x0, y0, z1]
-        c1010 = field[t1, x0, y1, z0]
-        c1011 = field[t1, x0, y1, z1]
-        c1100 = field[t1, x1, y0, z0]
-        c1101 = field[t1, x1, y0, z1]
-        c1110 = field[t1, x1, y1, z0]
-        c1111 = field[t1, x1, y1, z1]
+        c0000 = field[x0, y0, z0, t0]
+        c0001 = field[x0, y0, z1, t0]
+        c0010 = field[x0, y1, z0, t0]
+        c0011 = field[x0, y1, z1, t0]
+        c0100 = field[x1, y0, z0, t0]
+        c0101 = field[x1, y0, z1, t0]
+        c0110 = field[x1, y1, z0, t0]
+        c0111 = field[x1, y1, z1, t0]
+        c1000 = field[x0, y0, z0, t1]
+        c1001 = field[x0, y0, z1, t1]
+        c1010 = field[x0, y1, z0, t1]
+        c1011 = field[x0, y1, z1, t1]
+        c1100 = field[x1, y0, z0, t1]
+        c1101 = field[x1, y0, z1, t1]
+        c1110 = field[x1, y1, z0, t1]
+        c1111 = field[x1, y1, z1, t1]
     
         # Compute interpolation weights
         epsilon = 1e-10
@@ -1025,7 +1434,7 @@ def do_step_kernel(
             t[idx] += h[idx]
             
             for i in range(nstate):
-                y[idx, i] = y_next[idx, i] 
+                y[idx, i] = z_next[idx, i] 
 
         h[idx] *= scale
 
@@ -1052,5 +1461,4 @@ def undim_time(val):
     """
     sf = constants.R_earth / constants.c
     return val * sf
-
 

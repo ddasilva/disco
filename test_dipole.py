@@ -16,19 +16,19 @@ def main():
         h_initial=5*units.ms,
         h_min=1*units.ns,
         rtol=5e-3,
-        output_freq=2,
+        output_freq=1,
     )
     
-    grid_spacing = 0.1
+    grid_spacing = 0.5
     
     # Setup axes and grid
-    t_axis = np.array([0, 100]) * units.s
+    t_axis = np.arange(5) * units.s
     x_axis = np.arange(-10, 10, grid_spacing) * units.R_earth
     y_axis = np.arange(-10, 10, grid_spacing) * units.R_earth
     z_axis = np.arange(-5, 5, grid_spacing) * units.R_earth
     
-    t_grid, x_grid, y_grid, z_grid = np.meshgrid(
-        t_axis, y_axis, y_axis, z_axis,
+    x_grid, y_grid, z_grid, t_grid = np.meshgrid(
+        x_axis, y_axis, z_axis, t_axis,
         indexing='ij'
     )
     axes = libgputrace.RectilinearAxes(t_axis, x_axis, y_axis, z_axis)

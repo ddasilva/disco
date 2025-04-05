@@ -30,9 +30,9 @@ def main():
     y_axis = hdf.select("y")[:] * units.R_earth
     z_axis = hdf.select("z")[:] * units.R_earth
 
-    # Change order of axes
+    # # Change order of axes
     axis_from = [0, 1, 2, 3]
-    axis_to = [0, 3, 2, 1]
+    axis_to = [3, 2, 1, 0]
 
     Bx = np.moveaxis(Bx, axis_from, axis_to)
     By = np.moveaxis(By, axis_from, axis_to)
@@ -40,14 +40,7 @@ def main():
     Ex = np.moveaxis(Ex, axis_from, axis_to)
     Ey = np.moveaxis(Ey, axis_from, axis_to)
     Ez = np.moveaxis(Ez, axis_from, axis_to)
-       
-    # Add Dipole
-    t_grid, x_grid, y_grid, z_grid = np.meshgrid(
-        t_axis.value, x_axis.value, y_axis.value, z_axis.value,
-        indexing='ij'
-    )       
-    r_grid = np.sqrt(x_grid**2 + y_grid**2 + z_grid**2)
-              
+
     # Print or use the data
     print("Bx:", Bx.shape)
     print("By:", By.shape)
@@ -67,10 +60,12 @@ def main():
     t_final = 1 * units.s
     config = libgputrace.TraceConfig(
         t_final=t_final,
-        rtol=1e-2,
-        output_freq=1,
+        rtol=5e-3,
+        output_freq=5,
     )
-    pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
+    
+    #pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
+    pos_x = np.array([6.6]* 100_000) * constants.R_earth
     pos_y = np.zeros(pos_x.shape) * constants.R_earth
     pos_z = np.zeros(pos_x.shape) * constants.R_earth
 
