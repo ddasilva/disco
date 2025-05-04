@@ -8,7 +8,6 @@ from astropy import constants, units
 from scipy.constants import elementary_charge
 
 
-
 def main():
     """Main method of the program."""
     config = libgputrace.TraceConfig(
@@ -17,6 +16,7 @@ def main():
         h_min=1*units.ns,
         rtol=1e-2,
         output_freq=1,
+        #stopping_conditions=[stop_cond]
     )
     
     grid_spacing = 0.5
@@ -31,15 +31,19 @@ def main():
         x_axis, y_axis, z_axis, t_axis,
         indexing='ij'
     )
-    axes = libgputrace.RectilinearAxes(t_axis, x_axis, y_axis, z_axis)
+    axes = libgputrace.Axes(t_axis, x_axis, y_axis, z_axis)
     
     print('Grid Shape:', x_grid.shape)
     
     # Instantiate particle state and parallel velocity
-    pos_x = np.array([6.6]*100_000) * constants.R_earth
+    #pos_x = np.array([6.6]*100_000) * constants.R_earth
     #pos_x = np.linspace(6, 9, 100_000) * constants.R_earth
-    pos_y = np.zeros(pos_x.shape) * constants.R_earth
-    pos_z = np.zeros(pos_x.shape) * constants.R_earth
+    #pos_z = np.zeros(pos_x.shape) * constants.R_earth
+
+    pos_z = np.array([3]*100_000) * constants.R_earth
+    pos_x = np.zeros(pos_z.shape) * constants.R_earth
+    pos_y = np.zeros(pos_z.shape) * constants.R_earth
+    
     #vpar = np.ones(pos_x.shape) * 1e-2 * (constants.R_earth / units.s)
     #magnetic_moment = np.ones(pos_x.shape) * 1e-36 * 1e9 * units.A * constants.R_earth**2
 
@@ -78,7 +82,7 @@ def main():
     Ey = np.zeros(Bx.shape) * units.mV/units.m
     Ez = np.zeros(Bx.shape) * units.mV/units.m
 
-    field_model = libgputrace.RectilinearFieldModel(
+    field_model = libgputrace.FieldModel(
         Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes
     )
     
@@ -106,5 +110,11 @@ def main():
         pd.DataFrame(d).to_csv('data/test_dipole.csv')
 
 
+
+def stop_cond(y, t, field_model):
+    mask = (y[:, 2] > 1)
+    return mask
+    
+        
 if __name__ == '__main__':
     main()

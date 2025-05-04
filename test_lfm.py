@@ -18,9 +18,9 @@ def main():
     Bx = hdf.select("bx")[:ntimes] * units.nT
     By = hdf.select("by")[:ntimes] * units.nT
     Bz = hdf.select("bz")[:ntimes] * units.nT
-    Ex = hdf.select("ex")[:ntimes] * units.V/units.km
-    Ey = hdf.select("ey")[:ntimes] * units.V/units.km
-    Ez = hdf.select("ez")[:ntimes] * units.V/units.km
+    Ex = hdf.select("ex")[:ntimes] * units.V/units.m
+    Ey = hdf.select("ey")[:ntimes] * units.V/units.m
+    Ez = hdf.select("ez")[:ntimes] * units.V/units.m
 
     hdf.end()
 
@@ -88,9 +88,9 @@ def main():
     print('Number of particles:', pos_x.size)
 
     # Setup axes and field model
-    axes = libgputrace.RectilinearAxes(t_axis, x_axis, y_axis, z_axis)    
+    axes = libgputrace.Axes(t_axis, x_axis, y_axis, z_axis)    
 
-    field_model = libgputrace.RectilinearFieldModel(
+    field_model = libgputrace.FieldModel(
         Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes
     )
 

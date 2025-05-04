@@ -1,28 +1,28 @@
-import cupy as cp
-import sys
-from cupyx import jit
-import math
 from dataclasses import dataclass
-from typing import Any
+import math
+import sys
+from typing import Any, Optional, List, Callable
+
 from astropy import constants, units
 from astropy.units import Quantity
-from line_profiler import profile
+import cupy as cp
+from cupyx import jit
 import numpy as np
 
 
 @dataclass
 class TraceConfig:
     """Configuration for running the tracing code"""
-    t_final: Quantity                    # end time of integration
-    t_initial: Quantity = 0 * units.s    # start time of integration
-    h_initial: Quantity = 1 * units.ms   # initial step size
-    h_min: float = .1 * units.ms         # min step size
-    h_max: float = 1 * units.s           # max step size
-    rtol: float = 1e-3                   # relative tolerance
-    grad_step: float = .1                # finite diff delta step (half)
-    output_freq: int = 5                 # in iterations
+    t_final: Quantity                                    # end time of integration
+    output_freq: Optional[int] = None                    # in iterations
+    stopping_conditions: Optional[List[Callable]] = None # stopping conditions
+    t_initial: Quantity = 0 * units.s                    # start time of integration
+    h_initial: Quantity = 1 * units.ms                   # initial step size
+    h_min: Quantity = .1 * units.ms                      # min step size
+    h_max: Quantity = 1 * units.s                        # max step size
+    rtol: float = 1e-2                                   # relative tolerance
 
-
+    
 class FieldModel:
     """Abstract Base class of magnetic and electric field models.
 
@@ -37,7 +37,7 @@ class FieldModel:
     """    
     DEFAULT_RAW_B0 = 31e3 * units.nT
 
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, B0=DEFAULT_RAW_B0):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes, B0=DEFAULT_RAW_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         mass is not part of field model, but is used to redimensionalize.
@@ -59,64 +59,7 @@ class FieldModel:
         self.Ex = cp.array((sf * Ex).to(1).value)
         self.Ey = cp.array((sf * Ey).to(1).value)
         self.Ez = cp.array((sf * Ez).to(1).value)        
-
-    def multi_interp(self, t, y):
-        """Abstract base method to be overridden."""
-        raise NotImplementedError("This method should be defined in a subclass")
-
-        
-
-class UnstructuredFieldModel(FieldModel):
-    """Set of magnetic and electric field models on unstructured grid.
-
-    Interpolation is done by distance-weighted-averaging points within
-    a neighborhood.
-    """
-    
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, point_cloud):
-        """Get an instance that is dimensionalized and stored on the GPU.
-
-        Notes
-        - mass is not part of field model, but is used to redimensionalize.
-        - input argument should have astropy units attached.
-        - point_cloud is instance of UnstructuredFieldModelPointCloud
-        """
-        self.point_cloud = point_cloud
-        super().__init__(Bx, By, Bz, Ex, Ey, Ez, mass, charge)
-    
-    def multi_interp(self, t, y):
-        """Interpolate field values at given positions.
-        
-        Args
-          t: vector of particle times
-          y: vector of hsape (npart, 5) of particle states
-        Return
-           Bx, By, Bz, Ex, Ey, Ez,
-           dBxdx, dBxdy, dBxdz, 
-           dBydx, dBydy, dBydz, 
-           dBzdx, dBzdy, dBzdz, 
-           B, dBdx, dBdy, dBdz
-        """     
-        raise NotImplementedError("TODO")
-
-
-class RectilinearFieldModel(FieldModel):
-    """Set of magnetic and electric field models on rectilinear grid
-
-    See also:
-      RectilinearAxes
-    """
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes):
-        """Get an instance that is dimensionalized and stored on the GPU.
-
-        Notes
-        - mass is not part of field model, but is used to redimensionalize.
-        - input argument should have astropy units attached.
-        - axes is an instance of RectilinearAxes
-        """
         self.axes = axes
-        super().__init__(Bx, By, Bz, Ex, Ey, Ez, mass, charge)
-
 
     def multi_interp(self, t, y):
         """Interpolate field values at given positions.
@@ -191,7 +134,7 @@ class RectilinearFieldModel(FieldModel):
         block_size = 256
         grid_size = int(math.ceil(arr_size / block_size))
 
-        linterp4[grid_size, block_size](
+        linterp4_kernel[grid_size, block_size](
             arr_size, nx, ny, nz, nxy, nxyz, nttl,
             ix, iy, iz, it,
             t, y, b0,
@@ -246,42 +189,9 @@ class ParticleState:
             (magnetic_moment / (q * Re)).to(Re/units.s).value
         )
         self.mass = cp.array(mass.to(units.kg).value)
-
-
-class UnstructuredFieldModelPointCloud:
-    """Point cloud positions for unstructured field model.
-
-    Attributes
-      t: time axis
-      x: x axis
-      y: y axis
-      z: z axis
-    """
-    DEFAULT_NEIGHBORHOOD_SIZE = 0.25
-    
-    def __init__(self, t, x, y, z, neighborhood_size=DEFAULT_NEIGHBORHOOD_SIZE):
-        """Initialize instance that is dimensionalized and stored
-        on the GPU.
-
-        Input arguments should have astropy units
-        """
-
-        assert len(t.shape) == 1
-        assert len(x.shape) == 2
-        assert len(y.shape) == 2
-        assert len(z.shape) == 2
-                        
-        Re = constants.R_earth
-        self.t = cp.array(redim_time(t))
-        self.x = cp.array((x / Re).to(1).value)
-        self.y = cp.array((y / Re).to(1).value)
-        self.z = cp.array((z / Re).to(1).value)
-
-    def get_neighbors(self, t, pos_x, pos_y, pos_z):
-        raise NotImplementedError()
         
         
-class RectilinearAxes:
+class Axes:
     """1D arrays of rectilinear grid axes
 
     Attributes
@@ -385,7 +295,6 @@ class RK45Coeffs:
     d6 = 1/4
     
 
-@profile
 def trace_trajectory(config, particle_state, field_model):
     """Perform a euler integration particle trace.
     
@@ -416,6 +325,8 @@ def trace_trajectory(config, particle_state, field_model):
 
     t_final = redim_time(config.t_final)
     all_complete = False
+    stopped = cp.zeros(npart, dtype=bool)
+
     R = RK45Coeffs
     iter_count = 0
 
@@ -471,9 +382,10 @@ def trace_trajectory(config, particle_state, field_model):
         k4 *= h_
         k5 *= h_
         k6 *= h_
-        
+
         # Save incremented particles to history
-        if iter_count % config.output_freq == 0:
+        if (config.output_freq is not None
+            and (iter_count % config.output_freq == 0)):
             gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3]**2)
             W = gamma - 1            
             hist_t.append(t.get())
@@ -482,8 +394,11 @@ def trace_trajectory(config, particle_state, field_model):
             hist_W.append(W.get())
             hist_h.append(h.get())
 
-        num_iterated = do_step(k1, k2, k3, k4, k5, k6, y, h, t, config.rtol, t_final)
-        all_complete = cp.all(t >= t_final)
+        num_iterated = do_step(
+            k1, k2, k3, k4, k5, k6, y, h, t, config.rtol, t_final,
+            field_model, stopped, config.stopping_conditions,
+        )
+        all_complete = cp.all(stopped)
         iter_count += 1
 
         r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
@@ -497,6 +412,15 @@ def trace_trajectory(config, particle_state, field_model):
 
     print(f'Took {iter_count} iterations')
 
+    # Always save last step of each, even if not recording full history
+    gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3]**2)
+    W = gamma - 1            
+    hist_t.append(t.get())
+    hist_y.append(y.get())
+    hist_B.append(B.get())
+    hist_W.append(W.get())
+    hist_h.append(h.get())    
+    
     # Prepare history object and return instance of ParticleHistory
     hist_t = np.array(hist_t)
     hist_B = np.array(hist_B)
@@ -514,7 +438,6 @@ def trace_trajectory(config, particle_state, field_model):
     )
 
 
-@profile
 def rhs(t, y, field_model, config):
     """RIght hand side of the guiding center equation differential equation.
 
@@ -644,7 +567,7 @@ def rhs_kernel(
         
 
 @jit.rawkernel()
-def linterp4(
+def linterp4_kernel(
         arr_size, nx, ny, nz, nxy, nxyz, nttl,
         ix, iy, iz, it,
         t, y, b0,
@@ -941,8 +864,7 @@ def linterp4(
         dbdz[idx]=(bx[idx]*dbxdz[idx] + by[idx]*dbydz[idx] + bz[idx]*dbzdz[idx])/b[idx]
     
 
-@profile
-def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final):       
+def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped, stopping_conditions):       
     """Do a Runge-Kutta Step.
 
     Args
@@ -952,9 +874,20 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final):
       t: current vector of particle times
       rtol: relative tolerance
       t_final: final time (dimensionalized)
+      field_model: instance of libgputrace.FieldModel
     Returns
       num_iterated: number of particles iterated
     """
+    # Evaluate Stopping Conditions
+    if stopping_conditions:
+        for stop_cond in stopping_conditions:
+            stopped |= stop_cond(y, t, field_model)
+
+    # NaN h happens when one of the rhs evaluations for k1-k2
+    # is out of bounds
+    stopped |= cp.isnan(h) 
+
+    # Call Kernel to do the rest of the work
     arr_size = k1.shape[0]
     block_size = 1024
     grid_size = int(math.ceil(arr_size / block_size))
@@ -963,10 +896,15 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final):
     rtol_arr = cp.zeros(arr_size) + rtol
     t_final_arr = cp.zeros(arr_size) + t_final
     mask = cp.zeros(arr_size, dtype=bool)
-        
+    
     do_step_kernel[grid_size, block_size](
         arr_size, k1, k2, k3, k4, k5, k6, y, y_next, z_next, h, t,
-        rtol_arr, t_final_arr, mask
+        rtol_arr, t_final_arr, mask, stopped,
+        field_model.axes.x, field_model.axes.x.size,
+        field_model.axes.y, field_model.axes.y.size,
+        field_model.axes.z, field_model.axes.z.size,
+        field_model.axes.t, field_model.axes.t.size,
+
     )
     
     num_iterated = mask.sum()
@@ -977,7 +915,8 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final):
 @jit.rawkernel()
 def do_step_kernel(
         arr_size, k1, k2, k3, k4, k5, k6,
-        y, y_next, z_next, h, t, rtol, t_final, mask):
+        y, y_next, z_next, h, t, rtol, t_final, mask, stopped,
+        x_axis, nx, y_axis, ny, z_axis, nz, t_axis, nt):
     """[CUPY KERNEL] Do a Runge-Kutta Step
     
     Calculates error, selectively steps, and adjusts step size 
@@ -1016,7 +955,25 @@ def do_step_kernel(
         # Compute the error tolerance
         tolerance = rtol[idx] * ynorm
         scale = 0.84*(tolerance/err_total)**(1/4)
-        mask[idx] = (err_total < rtol[idx] * ynorm) & (t[idx] < t_final[idx])
+
+        # Does not exceed target integration
+        stopped[idx] |= t[idx] > t_final[idx]
+        
+        # Within x,y,z axes bounds
+        stopped[idx] |= y[idx, 0] < x_axis[0]
+        stopped[idx] |= y[idx, 1] < y_axis[0]
+        stopped[idx] |= y[idx, 2] < z_axis[0]
+                
+        stopped[idx] |= y[idx, 0] > x_axis[nx-1]
+        stopped[idx] |= y[idx, 1] > y_axis[ny-1]
+        stopped[idx] |= y[idx, 2] > z_axis[nz-1]                
+        
+        # WIthin t axes bounds
+        stopped[idx] |= t[idx] < t_axis[0]
+        stopped[idx] |= t[idx] > t_axis[nt-1]
+
+        # Mask for iteration
+        mask[idx] = (err_total < rtol[idx] * ynorm) & ~stopped[idx]
         
         # Selectively step particles
         if mask[idx]:
