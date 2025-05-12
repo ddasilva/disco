@@ -240,7 +240,7 @@ class Axes:
         assert len(z.shape) == 1
         
         Re = constants.R_earth
-        self.t = cp.array(redim_time(t))
+        self.t = cp.array(_redime_time(t))
         self.x = cp.array((x / Re).to(1).value)
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
@@ -339,7 +339,7 @@ def trace_trajectory(config, particle_state, field_model):
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
-    t = cp.zeros(npart) + redim_time(config.t_initial)
+    t = cp.zeros(npart) + _redime_time(config.t_initial)
     
     y = cp.zeros((particle_state.x.size, 5))
     y[:, 0] = particle_state.x
@@ -348,9 +348,9 @@ def trace_trajectory(config, particle_state, field_model):
     y[:, 3] = particle_state.ppar
     y[:, 4] = particle_state.magnetic_moment
 
-    h = cp.zeros(npart) + redim_time(config.h_initial)
+    h = cp.zeros(npart) + _redime_time(config.h_initial)
 
-    t_final = redim_time(config.t_final)
+    t_final = _redime_time(config.t_final)
     all_complete = False
     stopped = cp.zeros(npart, dtype=bool)
 
@@ -429,7 +429,7 @@ def trace_trajectory(config, particle_state, field_model):
         iter_count += 1
 
         r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
-        h_step = undim_time(float(h.mean())).to(units.ms).value
+        h_step = _undim_time(float(h.mean())).to(units.ms).value
         
         print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% '
               f'(iter {iter_count}, {num_iterated} iterated, h mean '
@@ -1047,7 +1047,7 @@ def do_step_kernel(
         h[idx] *= scale
 
                 
-def redim_time(val):
+def _redime_time(val):
     """Redimensionalize a time value.
 
     Args
@@ -1059,7 +1059,7 @@ def redim_time(val):
     return (sf * val).to(1).value
 
                 
-def undim_time(val):
+def _undim_time(val):
     """Redimensionalize a time value.
 
     Args
