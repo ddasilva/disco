@@ -44,26 +44,31 @@ class TraceConfig:
 
     
 class FieldModel:
-    """Abstract Base class of magnetic and electric field models.
-
-    Attributes
-      Bx: Magnetic Field X (dimensionalized)
-      By: Magnetic Field Y (dimensionalized)
-      Bz: Magnetic Field Z (dimensionalized)
-      B: Magnetic Field Magnitude (dimensionalized)
-      Ex: Electric Field X (dimensionalized)
-      Ey: Electric Field Y (dimensionalized)
-      Ez: Electric Field Z (dimensionalized)
+    """Magnetic and electric field models used to propagate particles.
     """    
     DEFAULT_RAW_B0 = 31e3 * units.nT
 
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes, B0=DEFAULT_RAW_B0):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes,
+                 B0=DEFAULT_RAW_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         mass is not part of field model, but is used to redimensionalize.
-
         Input argument should have astropy units attached.
-        Returns instance of class 
+        
+        Parameters
+        ----------
+        Bx: array of shape (nt, nx, ny, nz), with units
+          Magnetic Field X component
+        By: array of shape (nt, nx, ny, nz), with units
+          Magnetic Field Y component
+        Bz: array of shape (nt, nx, ny, nz), with units
+          Magnetic Field Z component
+        Ex: array of shape (nt, nx, ny, nz), with units
+          Electric Field X component
+        Ey: array of shape (nt, nx, ny, nz), with units
+          Electric Field Y component
+        Ez: array of shape (nt, nx, ny, nz), with units
+          Electric Field Z component
         """
         q = charge
         Re = constants.R_earth
@@ -84,15 +89,17 @@ class FieldModel:
     def multi_interp(self, t, y):
         """Interpolate field values at given positions.
         
-        Args
-          t: vector of particle times
-          y: vector of hsape (npart, 5) of particle states
-        Return
-           Bx, By, Bz, Ex, Ey, Ez,
-           dBxdx, dBxdy, dBxdz, 
-           dBydx, dBydy, dBydz, 
-           dBzdx, dBzdy, dBzdz, 
-           B, dBdx, dBdy, dBdz
+        Paramaters
+        ----------
+        t: cupy array
+          Vector of dimensionalized particle times
+        y: cupy array
+           Vector of shape (npart, 5) of particle states
+
+        Returns
+        -------
+        Bx, By, Bz, Ex, Ey, Ez, dBxdx, dBxdy, dBxdz, dBydx, dBydy, dBydz, 
+        dBzdx, dBzdy, dBzdz, B, dBdx, dBdy, dBdz
         """
         # Use Axes object to get neighbors of cell
         neighbors = self.axes.get_neighbors(t, y[:, 0], y[:, 1], y[:, 2])
@@ -181,12 +188,13 @@ class ParticleState:
     """1D arrays of cartesian particle position component"
 
     Attributes
-      x: x position
-      y: y position
-      z: z position
-      ppar: parallel momentum
-      magnetic_moment: first invariant
-      mass: rest mass
+    ----------
+    x: x position
+    y: y position
+    z: z position
+    ppar: parallel momentum
+    magnetic_moment: first invariant
+    mass: rest mass
     """
     def __init__(self, x, y, z, ppar, magnetic_moment, mass, charge):
         """Get a ParticleState() instance that is dimensionalized 
