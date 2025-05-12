@@ -31,7 +31,9 @@ def main():
         x_axis, y_axis, z_axis, t_axis,
         indexing='ij'
     )
-    axes = libgputrace.Axes(t_axis, x_axis, y_axis, z_axis)
+    r_inner = 1 * units.R_earth
+    
+    axes = libgputrace.Axes(t_axis, x_axis, y_axis, z_axis, r_inner)
     
     print('Grid Shape:', x_grid.shape)
     

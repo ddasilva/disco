@@ -1,5 +1,4 @@
 
-
 import libgputrace
 from pyhdf.SD import SD, SDC
 import numpy as np
@@ -88,7 +87,8 @@ def main():
     print('Number of particles:', pos_x.size)
 
     # Setup axes and field model
-    axes = libgputrace.Axes(t_axis, x_axis, y_axis, z_axis)    
+    r_inner = 2.15 * constants.R_earth
+    axes = libgputrace.Axes(t_axis, x_axis, y_axis, z_axis, r_inner=r_inner)    
 
     field_model = libgputrace.FieldModel(
         Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes

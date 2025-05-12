@@ -84,17 +84,17 @@ class FieldModel:
         ny = self.axes.y.size
         nz = self.axes.z.size
         nt = self.axes.t.size
-
         nxy = nx * ny        
         nxyz = nxy * nz
         nttl = nxyz * nt
 
         b0 = cp.zeros(arr_size) + self.B0
+        r_inner = cp.zeros(arr_size) + self.axes.r_inner
         
-        xgr = self.axes.x
-        ygr = self.axes.y
-        zgr = self.axes.z
-        tgr = self.axes.t
+        x_axis = self.axes.x
+        y_axis = self.axes.y
+        z_axis = self.axes.z
+        t_axis = self.axes.t
         
         ix, iy, iz, it = (
             neighbors.field_i,
@@ -134,11 +134,11 @@ class FieldModel:
         block_size = 256
         grid_size = int(math.ceil(arr_size / block_size))
 
-        linterp4_kernel[grid_size, block_size](
+        multi_interp_kernel[grid_size, block_size](
             arr_size, nx, ny, nz, nt, nxy, nxyz, nttl,
             ix, iy, iz, it,
-            t, y, b0,
-            tgr, xgr, ygr, zgr, 
+            t, y, b0, r_inner,
+            t_axis, x_axis, y_axis, z_axis, 
             bxvec, byvec, bzvec, exvec, eyvec, ezvec,
             bx, by, bz, ex, ey, ez,
             dbxdx, dbxdy, dbxdz, 
@@ -200,7 +200,7 @@ class Axes:
       y: y axis
       z: z axis
     """
-    def __init__(self, t, x, y, z):
+    def __init__(self, t, x, y, z, r_inner):
         """Initialize instance that is dimensionalized and stored
         on the GPU.
 
@@ -216,6 +216,7 @@ class Axes:
         self.x = cp.array((x / Re).to(1).value)
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
+        self.r_inner = (r_inner / Re).to(1).value
 
     def get_neighbors(self, t, pos_x, pos_y, pos_z):
         """Get instance of RectilinearNeighbors specifying surrounding
@@ -467,13 +468,14 @@ def rhs(t, y, field_model, config):
         B *= -1
         dBdx *= -1
         dBdy *= -1
-        dBdz *= -1        
-        
+        dBdz *= -1
+    
     # Launch Kernel to handle rest of RHS
     arr_size = y.shape[0]
     block_size = 256
     grid_size = int(math.ceil(arr_size / block_size))
-    
+
+    r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
     dydt = cp.zeros((arr_size, 5))
 
     rhs_kernel[grid_size, block_size](
@@ -488,6 +490,7 @@ def rhs(t, y, field_model, config):
         field_model.axes.y.size,
         field_model.axes.z.size,
         field_model.axes.t.size,
+        r_inner,
         dBdx, dBdy, dBdz,
         dBxdy, dBxdz, dBydx, dBydz, dBzdx, dBzdy,
         dydt,
@@ -501,7 +504,7 @@ def rhs_kernel(
         arr_size, y, t, 
         Bx_arr, By_arr, Bz_arr, B_arr,
         Ex_arr, Ey_arr, Ez_arr,
-        xgr, ygr, zgr, tgr, nx, ny, nz, nt,
+        x_axis, y_axis, z_axis, t_axis, nx, ny, nz, nt, r_inner,
         dBdx_arr, dBdy_arr, dBdz_arr,
         dBxdy_arr, dBxdz_arr, dBydx_arr, dBydz_arr, dBzdx_arr, dBzdy_arr,
         dydt_arr, 
@@ -517,10 +520,11 @@ def rhs_kernel(
 
     if idx < arr_size and not (
             # Out of bounds check
-            y[idx, 0] < xgr[0] or y[idx, 0] > xgr[nx - 1] or
-            y[idx, 1] < ygr[0] or y[idx, 1] > ygr[ny - 1] or
-            y[idx, 2] < zgr[0] or y[idx, 2] > zgr[nz - 1] or
-            t[idx] < tgr[0] or t[idx] > tgr[nt - 1]
+            y[idx, 0] < x_axis[0] or y[idx, 0] > x_axis[nx - 1] or
+            y[idx, 1] < y_axis[0] or y[idx, 1] > y_axis[ny - 1] or
+            y[idx, 2] < z_axis[0] or y[idx, 2] > z_axis[nz - 1] or
+            t[idx] < t_axis[0] or t[idx] > t_axis[nt - 1] or
+            (y[idx, 0]**2 + y[idx, 1]**2 + y[idx, 2]**2)**0.5 < r_inner[idx]
     ):    
         # Pull variables out of arrays
         ppar  = y[idx, 3]
@@ -584,11 +588,11 @@ def rhs_kernel(
         
 
 @jit.rawkernel()
-def linterp4_kernel(
+def multi_interp_kernel(
         arr_size, nx, ny, nz, nt, nxy, nxyz, nttl,
         ix, iy, iz, it,
-        t, y, b0,
-        tgr, xgr, ygr, zgr, 
+        t, y, b0, r_inner,
+        t_axis, x_axis, y_axis, z_axis, 
         bxvec, byvec, bzvec, exvec, eyvec, ezvec,
         bx, by, bz, ex, ey, ez,
         dbxdx, dbxdy, dbxdz, 
@@ -605,15 +609,16 @@ def linterp4_kernel(
     
     if idx < arr_size and not (
             # Out of bounds check
-            y[idx, 0] < xgr[0] or y[idx, 0] > xgr[nx - 1] or
-            y[idx, 1] < ygr[0] or y[idx, 1] > ygr[ny - 1] or
-            y[idx, 2] < zgr[0] or y[idx, 2] > zgr[nz - 1] or
-            t[idx] < tgr[0] or t[idx] > tgr[nt - 1]
+            y[idx, 0] < x_axis[0] or y[idx, 0] > x_axis[nx - 1] or
+            y[idx, 1] < y_axis[0] or y[idx, 1] > y_axis[ny - 1] or
+            y[idx, 2] < z_axis[0] or y[idx, 2] > z_axis[nz - 1] or
+            t[idx] < t_axis[0] or t[idx] > t_axis[nt - 1] or
+            (y[idx, 0]**2 + y[idx, 1]**2 + y[idx, 2]**2)**0.5 < r_inner[idx]
     ):            
-        dx = xgr[ix[idx] + 1] - xgr[ix[idx]]
-        dy = ygr[iy[idx] + 1] - ygr[iy[idx]]
-        dz = zgr[iz[idx] + 1] - zgr[iz[idx]]
-        dt = tgr[it[idx] + 1] - tgr[it[idx]]
+        dx = x_axis[ix[idx] + 1] - x_axis[ix[idx]]
+        dy = y_axis[iy[idx] + 1] - y_axis[iy[idx]]
+        dz = z_axis[iz[idx] + 1] - z_axis[iz[idx]]
+        dt = t_axis[it[idx] + 1] - t_axis[it[idx]]
 
 	# ...determine memory location corresponding to ix,iy,iz,it
 	#	and ix+1,iy+1,iz+1,it+1...        
@@ -635,13 +640,13 @@ def linterp4_kernel(
         iiii= iiij - nxyz
 
         #...calculate weighting factors...
-        w1=cp.abs(y[idx, 0] - xgr[ix[idx]])/dx
+        w1=cp.abs(y[idx, 0] - x_axis[ix[idx]])/dx
         w1m=1.-w1
-        w2=cp.abs(y[idx, 1] - ygr[iy[idx]])/dy
+        w2=cp.abs(y[idx, 1] - y_axis[iy[idx]])/dy
         w2m=1.-w2
-        w3=cp.abs(y[idx, 2] - zgr[iz[idx]])/dz
+        w3=cp.abs(y[idx, 2] - z_axis[iz[idx]])/dz
         w3m=1.-w3
-        w4=cp.abs(t[idx] - tgr[it[idx]])/dt
+        w4=cp.abs(t[idx] - t_axis[it[idx]])/dt
         w4m=1.-w4
         
         w1m2m=w1m*w2m
@@ -918,6 +923,7 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped
     z_next = cp.zeros(y.shape)    
     rtol_arr = cp.zeros(arr_size) + rtol
     t_final_arr = cp.zeros(arr_size) + t_final
+    r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
     mask = cp.zeros(arr_size, dtype=bool)
     
     do_step_kernel[grid_size, block_size](
@@ -927,7 +933,7 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped
         field_model.axes.y, field_model.axes.y.size,
         field_model.axes.z, field_model.axes.z.size,
         field_model.axes.t, field_model.axes.t.size,
-
+        r_inner,
     )
     
     num_iterated = mask.sum()
@@ -939,7 +945,7 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped
 def do_step_kernel(
         arr_size, k1, k2, k3, k4, k5, k6,
         y, y_next, z_next, h, t, rtol, t_final, mask, stopped,
-        x_axis, nx, y_axis, ny, z_axis, nz, t_axis, nt):
+        x_axis, nx, y_axis, ny, z_axis, nz, t_axis, nt, r_inner):
     """[CUPY KERNEL] Do a Runge-Kutta Step
     
     Calculates error, selectively steps, and adjusts step size 
@@ -990,6 +996,9 @@ def do_step_kernel(
         stopped[idx] |= y[idx, 0] > x_axis[nx-1]
         stopped[idx] |= y[idx, 1] > y_axis[ny-1]
         stopped[idx] |= y[idx, 2] > z_axis[nz-1]                
+
+        radius = (y[idx, 0]**2 + y[idx, 1]**2 + y[idx, 2]**2)**0.5
+        stopped[idx] |= radius < r_inner[idx]
         
         # WIthin t axes bounds
         stopped[idx] |= t[idx] < t_axis[0]
