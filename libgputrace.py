@@ -12,15 +12,35 @@ import numpy as np
 
 @dataclass
 class TraceConfig:
-    """Configuration for running the tracing code"""
-    t_final: Quantity                                    # end time of integration
-    output_freq: Optional[int] = None                    # in iterations
-    stopping_conditions: Optional[List[Callable]] = None # stopping conditions
-    t_initial: Quantity = 0 * units.s                    # start time of integration
-    h_initial: Quantity = 1 * units.ms                   # initial step size
-    h_min: Quantity = .1 * units.ms                      # min step size
-    h_max: Quantity = 1 * units.s                        # max step size
-    rtol: float = 1e-2                                   # relative tolerance
+    """Configuration for running the tracing code.
+
+    Attributes
+    ----------
+    t_final: Quantity (time)
+      end time of integration (set to inf seconds if you want to stop
+      purely based on stopping conditions)
+    output_freq: int or None
+      How frequently (in iterations) to store output. Setting this
+      to non-None means memory will accumulate with time.
+    stopping_conditions: list of callables
+      List of callables (functions) that return bools. Arguments are
+      y, t, and field_model.
+    t_initial: Quantity (time) 
+      Start time of integration
+    h_initial: Quantity (time)
+      Initial step size in time
+    rtol: float
+      Relative tolerance for adaptive integration
+    integrate_backwards: bool
+      Set to True to integrate backwards in time
+    """
+    t_final: Quantity
+    output_freq: Optional[int] = None
+    stopping_conditions: Optional[List[Callable]] = None
+    t_initial: Quantity = 0 * units.s
+    h_initial: Quantity = 1 * units.ms
+    rtol: float = 1e-2
+    integrate_backwards: bool = False
 
     
 class FieldModel:
@@ -321,8 +341,6 @@ def trace_trajectory(config, particle_state, field_model):
     y[:, 4] = particle_state.magnetic_moment
 
     h = cp.zeros(npart) + redim_time(config.h_initial)
-    h_min = cp.zeros(npart) + redim_time(config.h_min)
-    h_max = cp.zeros(npart) + redim_time(config.h_max)
 
     t_final = redim_time(config.t_final)
     all_complete = False
@@ -338,8 +356,8 @@ def trace_trajectory(config, particle_state, field_model):
     hist_h = []
 
     while not all_complete:
-        h = cp.minimum(h_max, cp.maximum(h, h_min))
-        h_ = cp.zeros((h.size, 5))             # cupy broadcasting workaround
+        # Cupy broadcasting workaround
+        h_ = cp.zeros((h.size, 5))
 
         for i in range(5):
             h_[:, i] = h
@@ -449,8 +467,8 @@ def rhs(t, y, field_model, config):
       axes: instance of Axes (rectilinear grid axes)
       config: instance of Config (tracing configuration)
     Returns
-      dydt: cupy array (nparticles, 4). First three columns are position, fourth
-        is parallel momentum
+      dydt: cupy array (nparticles, 5). First three columns are position, 
+        fourth is parallel momentum, fifth is relativistic magnetic moment
     """
     # Get B Values
     (
@@ -892,7 +910,10 @@ def multi_interp_kernel(
         dbdz[idx]=(bx[idx]*dbxdz[idx] + by[idx]*dbydz[idx] + bz[idx]*dbzdz[idx])/b[idx]
     
 
-def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped, stopping_conditions):       
+def do_step(
+        k1, k2, k3, k4, k5, k6, y, h, t,
+        rtol, t_final, field_model, stopped, stopping_conditions
+): 
     """Do a Runge-Kutta Step.
 
     Args
@@ -903,6 +924,8 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped
       rtol: relative tolerance
       t_final: final time (dimensionalized)
       field_model: instance of libgputrace.FieldModel
+      stopped: boolean array of whether integration has stopped
+      stopped_conditions: list of callables
     Returns
       num_iterated: number of particles iterated
     """
@@ -911,8 +934,7 @@ def do_step(k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped
         for stop_cond in stopping_conditions:
             stopped |= stop_cond(y, t, field_model)
 
-    # NaN h happens when one of the rhs evaluations for k1-k2
-    # is out of bounds
+    # Nan signals some major problem in the code, better to stop immediately
     stopped |= cp.isnan(h) 
 
     # Call Kernel to do the rest of the work

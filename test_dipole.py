@@ -13,7 +13,6 @@ def main():
     config = libgputrace.TraceConfig(
         t_final=1*units.s,
         h_initial=5*units.ms,
-        h_min=1*units.ns,
         rtol=1e-2,
         output_freq=1,
         #stopping_conditions=[stop_cond]
