@@ -103,12 +103,12 @@ class FieldModel:
             neighbors.field_l,            
         )
 
-        bxdv = self.Bx.reshape(nttl, order='F')
-        bydv = self.By.reshape(nttl, order='F')
-        bzdv = self.Bz.reshape(nttl, order='F')
-        exdv = self.Ex.reshape(nttl, order='F')
-        eydv = self.Ey.reshape(nttl, order='F')
-        ezdv = self.Ez.reshape(nttl, order='F')
+        bxvec = self.Bx.reshape(nttl, order='F')
+        byvec = self.By.reshape(nttl, order='F')
+        bzvec = self.Bz.reshape(nttl, order='F')
+        exvec = self.Ex.reshape(nttl, order='F')
+        eyvec = self.Ey.reshape(nttl, order='F')
+        ezvec = self.Ez.reshape(nttl, order='F')
 
         bx = cp.zeros(arr_size)
         by = cp.zeros(arr_size)
@@ -135,11 +135,11 @@ class FieldModel:
         grid_size = int(math.ceil(arr_size / block_size))
 
         linterp4_kernel[grid_size, block_size](
-            arr_size, nx, ny, nz, nxy, nxyz, nttl,
+            arr_size, nx, ny, nz, nt, nxy, nxyz, nttl,
             ix, iy, iz, it,
             t, y, b0,
             tgr, xgr, ygr, zgr, 
-            bxdv, bydv, bzdv, exdv, eydv, ezdv,
+            bxvec, byvec, bzvec, exvec, eyvec, ezvec,
             bx, by, bz, ex, ey, ez,
             dbxdx, dbxdy, dbxdz, 
             dbydx, dbydy, dbydz, 
@@ -477,11 +477,20 @@ def rhs(t, y, field_model, config):
     dydt = cp.zeros((arr_size, 5))
 
     rhs_kernel[grid_size, block_size](
-        arr_size, y, dydt, 
+        arr_size, y, t, 
         Bx, By, Bz, B,
         Ex, Ey, Ez,
+        field_model.axes.x,
+        field_model.axes.y,
+        field_model.axes.z,
+        field_model.axes.t,
+        field_model.axes.x.size,
+        field_model.axes.y.size,
+        field_model.axes.z.size,
+        field_model.axes.t.size,
         dBdx, dBdy, dBdz,
         dBxdy, dBxdz, dBydx, dBydz, dBzdx, dBzdy,
+        dydt,
     )
 
     return dydt, B
@@ -489,22 +498,30 @@ def rhs(t, y, field_model, config):
 
 @jit.rawkernel()
 def rhs_kernel(
-        arr_size, y, dydt_arr, 
+        arr_size, y, t, 
         Bx_arr, By_arr, Bz_arr, B_arr,
         Ex_arr, Ey_arr, Ez_arr,
+        xgr, ygr, zgr, tgr, nx, ny, nz, nt,
         dBdx_arr, dBdy_arr, dBdz_arr,
         dBxdy_arr, dBxdz_arr, dBydx_arr, dBydz_arr, dBzdx_arr, dBzdy_arr,
+        dydt_arr, 
 ):
     """[CUPY KERNEL] implements RHS of oDE. 
 
-    Code adapted from Fortran. Uses gyro-averaged equations of motion developed 
-    by Brizzard and Chan (Phys. Plasmas 6, 4553, 1999),
+    Code adapted from Fortran. Uses gyro-averaged equations of motion 
+    developed by Brizzard and Chan (Phys. Plasmas 6, 4553, 1999),
 
     Writes output to dydt[idx, :]
     """
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
 
-    if idx < arr_size:    
+    if idx < arr_size and not (
+            # Out of bounds check
+            y[idx, 0] < xgr[0] or y[idx, 0] > xgr[nx - 1] or
+            y[idx, 1] < ygr[0] or y[idx, 1] > ygr[ny - 1] or
+            y[idx, 2] < zgr[0] or y[idx, 2] > zgr[nz - 1] or
+            t[idx] < tgr[0] or t[idx] > tgr[nt - 1]
+    ):    
         # Pull variables out of arrays
         ppar  = y[idx, 3]
         M     = y[idx, 4]
@@ -568,11 +585,11 @@ def rhs_kernel(
 
 @jit.rawkernel()
 def linterp4_kernel(
-        arr_size, nx, ny, nz, nxy, nxyz, nttl,
+        arr_size, nx, ny, nz, nt, nxy, nxyz, nttl,
         ix, iy, iz, it,
         t, y, b0,
         tgr, xgr, ygr, zgr, 
-        bxdv, bydv, bzdv, exdv, eydv, ezdv,
+        bxvec, byvec, bzvec, exvec, eyvec, ezvec,
         bx, by, bz, ex, ey, ez,
         dbxdx, dbxdy, dbxdz, 
         dbydx, dbydy, dbydz, 
@@ -586,7 +603,13 @@ def linterp4_kernel(
     """
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
     
-    if idx < arr_size:
+    if idx < arr_size and not (
+            # Out of bounds check
+            y[idx, 0] < xgr[0] or y[idx, 0] > xgr[nx - 1] or
+            y[idx, 1] < ygr[0] or y[idx, 1] > ygr[ny - 1] or
+            y[idx, 2] < zgr[0] or y[idx, 2] > zgr[nz - 1] or
+            t[idx] < tgr[0] or t[idx] > tgr[nt - 1]
+    ):            
         dx = xgr[ix[idx] + 1] - xgr[ix[idx]]
         dy = ygr[iy[idx] + 1] - ygr[iy[idx]]
         dz = zgr[iz[idx] + 1] - zgr[iz[idx]]
@@ -661,60 +684,60 @@ def linterp4_kernel(
         
         # ...interpolate field components...
         bx[idx]=(
-            bxdv[iiii]*ww01+bxdv[jiii]*ww02+bxdv[jjii]*ww03
-            +bxdv[ijii]*ww04+bxdv[iiji]*ww05+bxdv[jiji]*ww06
-            +bxdv[jjji]*ww07+bxdv[ijji]*ww08+bxdv[iiij]*ww09
-            +bxdv[jiij]*ww10+bxdv[jjij]*ww11+bxdv[ijij]*ww12
-            +bxdv[iijj]*ww13+bxdv[jijj]*ww14+bxdv[jjjj]*ww15
-            +bxdv[ijjj]*ww16 
+            bxvec[iiii]*ww01+bxvec[jiii]*ww02+bxvec[jjii]*ww03
+            +bxvec[ijii]*ww04+bxvec[iiji]*ww05+bxvec[jiji]*ww06
+            +bxvec[jjji]*ww07+bxvec[ijji]*ww08+bxvec[iiij]*ww09
+            +bxvec[jiij]*ww10+bxvec[jjij]*ww11+bxvec[ijij]*ww12
+            +bxvec[iijj]*ww13+bxvec[jijj]*ww14+bxvec[jjjj]*ww15
+            +bxvec[ijjj]*ww16 
             -bfac1*y[idx, 0]*y[idx, 2]
         )
 
         by[idx]=(
-            bydv[iiii]*ww01+bydv[jiii]*ww02+bydv[jjii]*ww03
-            +bydv[ijii]*ww04+bydv[iiji]*ww05+bydv[jiji]*ww06
-            +bydv[jjji]*ww07+bydv[ijji]*ww08+bydv[iiij]*ww09
-            +bydv[jiij]*ww10+bydv[jjij]*ww11+bydv[ijij]*ww12
-            +bydv[iijj]*ww13+bydv[jijj]*ww14+bydv[jjjj]*ww15
-            +bydv[ijjj]*ww16 
+            byvec[iiii]*ww01+byvec[jiii]*ww02+byvec[jjii]*ww03
+            +byvec[ijii]*ww04+byvec[iiji]*ww05+byvec[jiji]*ww06
+            +byvec[jjji]*ww07+byvec[ijji]*ww08+byvec[iiij]*ww09
+            +byvec[jiij]*ww10+byvec[jjij]*ww11+byvec[ijij]*ww12
+            +byvec[iijj]*ww13+byvec[jijj]*ww14+byvec[jjjj]*ww15
+            +byvec[ijjj]*ww16 
             -bfac1*y[idx, 1]*y[idx, 2]
         )
         
         bz[idx]=(
-            bzdv[iiii]*ww01+bzdv[jiii]*ww02+bzdv[jjii]*ww03
-            +bzdv[ijii]*ww04+bzdv[iiji]*ww05+bzdv[jiji]*ww06
-            +bzdv[jjji]*ww07+bzdv[ijji]*ww08+bzdv[iiij]*ww09
-            +bzdv[jiij]*ww10+bzdv[jjij]*ww11+bzdv[ijij]*ww12
-            +bzdv[iijj]*ww13+bzdv[jijj]*ww14+bzdv[jjjj]*ww15
-            +bzdv[ijjj]*ww16 
+            bzvec[iiii]*ww01+bzvec[jiii]*ww02+bzvec[jjii]*ww03
+            +bzvec[ijii]*ww04+bzvec[iiji]*ww05+bzvec[jiji]*ww06
+            +bzvec[jjji]*ww07+bzvec[ijji]*ww08+bzvec[iiij]*ww09
+            +bzvec[jiij]*ww10+bzvec[jjij]*ww11+bzvec[ijij]*ww12
+            +bzvec[iijj]*ww13+bzvec[jijj]*ww14+bzvec[jjjj]*ww15
+            +bzvec[ijjj]*ww16 
             -bfac1*y[idx, 2]*y[idx, 2] + b0[idx]/r2/r
         )
 
         ex[idx]=(
-            exdv[iiii]*ww01+exdv[jiii]*ww02+exdv[jjii]*ww03
-            +exdv[ijii]*ww04+exdv[iiji]*ww05+exdv[jiji]*ww06
-            +exdv[jjji]*ww07+exdv[ijji]*ww08+exdv[iiij]*ww09
-            +exdv[jiij]*ww10+exdv[jjij]*ww11+exdv[ijij]*ww12
-            +exdv[iijj]*ww13+exdv[jijj]*ww14+exdv[jjjj]*ww15
-            +exdv[ijjj]*ww16
+            exvec[iiii]*ww01+exvec[jiii]*ww02+exvec[jjii]*ww03
+            +exvec[ijii]*ww04+exvec[iiji]*ww05+exvec[jiji]*ww06
+            +exvec[jjji]*ww07+exvec[ijji]*ww08+exvec[iiij]*ww09
+            +exvec[jiij]*ww10+exvec[jjij]*ww11+exvec[ijij]*ww12
+            +exvec[iijj]*ww13+exvec[jijj]*ww14+exvec[jjjj]*ww15
+            +exvec[ijjj]*ww16
         )
         
         ey[idx]=(
-            eydv[iiii]*ww01+eydv[jiii]*ww02+eydv[jjii]*ww03
-            +eydv[ijii]*ww04+eydv[iiji]*ww05+eydv[jiji]*ww06
-            +eydv[jjji]*ww07+eydv[ijji]*ww08+eydv[iiij]*ww09
-            +eydv[jiij]*ww10+eydv[jjij]*ww11+eydv[ijij]*ww12
-            +eydv[iijj]*ww13+eydv[jijj]*ww14+eydv[jjjj]*ww15
-            +eydv[ijjj]*ww16
+            eyvec[iiii]*ww01+eyvec[jiii]*ww02+eyvec[jjii]*ww03
+            +eyvec[ijii]*ww04+eyvec[iiji]*ww05+eyvec[jiji]*ww06
+            +eyvec[jjji]*ww07+eyvec[ijji]*ww08+eyvec[iiij]*ww09
+            +eyvec[jiij]*ww10+eyvec[jjij]*ww11+eyvec[ijij]*ww12
+            +eyvec[iijj]*ww13+eyvec[jijj]*ww14+eyvec[jjjj]*ww15
+            +eyvec[ijjj]*ww16
         )
         
         ez[idx]=(
-            ezdv[iiii]*ww01+ezdv[jiii]*ww02+ezdv[jjii]*ww03
-            +ezdv[ijii]*ww04+ezdv[iiji]*ww05+ezdv[jiji]*ww06
-            +ezdv[jjji]*ww07+ezdv[ijji]*ww08+ezdv[iiij]*ww09
-            +ezdv[jiij]*ww10+ezdv[jjij]*ww11+ezdv[ijij]*ww12
-            +ezdv[iijj]*ww13+ezdv[jijj]*ww14+ezdv[jjjj]*ww15
-            +ezdv[ijjj]*ww16
+            ezvec[iiii]*ww01+ezvec[jiii]*ww02+ezvec[jjii]*ww03
+            +ezvec[ijii]*ww04+ezvec[iiji]*ww05+ezvec[jiji]*ww06
+            +ezvec[jjji]*ww07+ezvec[ijji]*ww08+ezvec[iiij]*ww09
+            +ezvec[jiij]*ww10+ezvec[jjij]*ww11+ezvec[ijij]*ww12
+            +ezvec[iijj]*ww13+ezvec[jijj]*ww14+ezvec[jjjj]*ww15
+            +ezvec[ijjj]*ww16
         )
         
         #...calculate btot and field derivatives to 1st order...
@@ -748,110 +771,110 @@ def linterp4_kernel(
         
         #...calculate component derivatives...
         dbxdx[idx]=(
-            ((bxdv[jiii]-bxdv[iiii])*w2m3m4m
-            +(bxdv[jjii]-bxdv[ijii])*w23m4m
-            +(bxdv[jiji]-bxdv[iiji])*w2m34m
-            +(bxdv[jjji]-bxdv[ijji])*w234m
-            +(bxdv[jiij]-bxdv[iiij])*w2m3m4
-            +(bxdv[jjij]-bxdv[ijij])*w23m4
-            +(bxdv[jijj]-bxdv[iijj])*w2m34
-            +(bxdv[jjjj]-bxdv[ijjj])*w234)/dx
+            ((bxvec[jiii]-bxvec[iiii])*w2m3m4m
+            +(bxvec[jjii]-bxvec[ijii])*w23m4m
+            +(bxvec[jiji]-bxvec[iiji])*w2m34m
+            +(bxvec[jjji]-bxvec[ijji])*w234m
+            +(bxvec[jiij]-bxvec[iiij])*w2m3m4
+            +(bxvec[jjij]-bxvec[ijij])*w23m4
+            +(bxvec[jijj]-bxvec[iijj])*w2m34
+            +(bxvec[jjjj]-bxvec[ijjj])*w234)/dx
             -bfac1*y[idx, 2]+bfac2*y[idx, 0]*y[idx, 0]*y[idx, 2]
         )
         
         dbxdy[idx]=(
-            ((bxdv[ijii]-bxdv[iiii])*w1m3m4m
-             +(bxdv[jjii]-bxdv[jiii])*w13m4m
-             +(bxdv[ijji]-bxdv[iiji])*w1m34m
-             +(bxdv[jjji]-bxdv[jiji])*w134m
-             +(bxdv[ijij]-bxdv[iiij])*w1m3m4
-             +(bxdv[jjij]-bxdv[jiij])*w13m4
-             +(bxdv[ijjj]-bxdv[iijj])*w1m34
-             +(bxdv[jjjj]-bxdv[jijj])*w134)/dy
+            ((bxvec[ijii]-bxvec[iiii])*w1m3m4m
+             +(bxvec[jjii]-bxvec[jiii])*w13m4m
+             +(bxvec[ijji]-bxvec[iiji])*w1m34m
+             +(bxvec[jjji]-bxvec[jiji])*w134m
+             +(bxvec[ijij]-bxvec[iiij])*w1m3m4
+             +(bxvec[jjij]-bxvec[jiij])*w13m4
+             +(bxvec[ijjj]-bxvec[iijj])*w1m34
+             +(bxvec[jjjj]-bxvec[jijj])*w134)/dy
             +bfac2*y[idx, 0]*y[idx, 1]*y[idx, 2]
         )
         
         dbxdz[idx]=(
-            ((bxdv[iiji]-bxdv[iiii])*w1m2m4m
-             +(bxdv[jiji]-bxdv[jiii])*w12m4m
-             +(bxdv[ijji]-bxdv[ijii])*w1m24m
-             +(bxdv[jjji]-bxdv[jjii])*w124m
-             +(bxdv[iijj]-bxdv[iiij])*w1m2m4
-             +(bxdv[jijj]-bxdv[jiij])*w12m4
-             +(bxdv[ijjj]-bxdv[ijij])*w1m24
-            +(bxdv[jjjj]-bxdv[jjij])*w124)/dz
+            ((bxvec[iiji]-bxvec[iiii])*w1m2m4m
+             +(bxvec[jiji]-bxvec[jiii])*w12m4m
+             +(bxvec[ijji]-bxvec[ijii])*w1m24m
+             +(bxvec[jjji]-bxvec[jjii])*w124m
+             +(bxvec[iijj]-bxvec[iiij])*w1m2m4
+             +(bxvec[jijj]-bxvec[jiij])*w12m4
+             +(bxvec[ijjj]-bxvec[ijij])*w1m24
+            +(bxvec[jjjj]-bxvec[jjij])*w124)/dz
             -bfac1*y[idx, 0]+bfac2*y[idx, 0]*y[idx, 2]*y[idx, 2]
         )
         
         dbydx[idx]=(
-            ((bydv[jiii]-bydv[iiii])*w2m3m4m
-             +(bydv[jjii]-bydv[ijii])*w23m4m
-             +(bydv[jiji]-bydv[iiji])*w2m34m
-             +(bydv[jjji]-bydv[ijji])*w234m
-             +(bydv[jiij]-bydv[iiij])*w2m3m4
-             +(bydv[jjij]-bydv[ijij])*w23m4
-             +(bydv[jijj]-bydv[iijj])*w2m34
-             +(bydv[jjjj]-bydv[ijjj])*w234)/dx
+            ((byvec[jiii]-byvec[iiii])*w2m3m4m
+             +(byvec[jjii]-byvec[ijii])*w23m4m
+             +(byvec[jiji]-byvec[iiji])*w2m34m
+             +(byvec[jjji]-byvec[ijji])*w234m
+             +(byvec[jiij]-byvec[iiij])*w2m3m4
+             +(byvec[jjij]-byvec[ijij])*w23m4
+             +(byvec[jijj]-byvec[iijj])*w2m34
+             +(byvec[jjjj]-byvec[ijjj])*w234)/dx
             +bfac2*y[idx, 1]*y[idx, 2]*y[idx, 0]
         )
         
         dbydy[idx]=(
-            ((bydv[ijii]-bydv[iiii])*w1m3m4m
-             +(bydv[jjii]-bydv[jiii])*w13m4m
-             +(bydv[ijji]-bydv[iiji])*w1m34m
-             +(bydv[jjji]-bydv[jiji])*w134m
-             +(bydv[ijij]-bydv[iiij])*w1m3m4
-             +(bydv[jjij]-bydv[jiij])*w13m4
-             +(bydv[ijjj]-bydv[iijj])*w1m34
-             +(bydv[jjjj]-bydv[jijj])*w134)/dy
+            ((byvec[ijii]-byvec[iiii])*w1m3m4m
+             +(byvec[jjii]-byvec[jiii])*w13m4m
+             +(byvec[ijji]-byvec[iiji])*w1m34m
+             +(byvec[jjji]-byvec[jiji])*w134m
+             +(byvec[ijij]-byvec[iiij])*w1m3m4
+             +(byvec[jjij]-byvec[jiij])*w13m4
+             +(byvec[ijjj]-byvec[iijj])*w1m34
+             +(byvec[jjjj]-byvec[jijj])*w134)/dy
             -bfac1*y[idx, 2]+bfac2*y[idx, 1]*y[idx, 1]*y[idx, 2]
         )
         
         dbydz[idx]=(
-            ((bydv[iiji]-bydv[iiii])*w1m2m4m
-             +(bydv[jiji]-bydv[jiii])*w12m4m
-             +(bydv[ijji]-bydv[ijii])*w1m24m
-             +(bydv[jjji]-bydv[jjii])*w124m
-             +(bydv[iijj]-bydv[iiij])*w1m2m4
-             +(bydv[jijj]-bydv[jiij])*w12m4
-             +(bydv[ijjj]-bydv[ijij])*w1m24
-             +(bydv[jjjj]-bydv[jjij])*w124)/dz
+            ((byvec[iiji]-byvec[iiii])*w1m2m4m
+             +(byvec[jiji]-byvec[jiii])*w12m4m
+             +(byvec[ijji]-byvec[ijii])*w1m24m
+             +(byvec[jjji]-byvec[jjii])*w124m
+             +(byvec[iijj]-byvec[iiij])*w1m2m4
+             +(byvec[jijj]-byvec[jiij])*w12m4
+             +(byvec[ijjj]-byvec[ijij])*w1m24
+             +(byvec[jjjj]-byvec[jjij])*w124)/dz
             -bfac1*y[idx, 1]+bfac2*y[idx, 2]*y[idx, 2]*y[idx, 1]
         )
         
         dbzdx[idx]=(
-            ((bzdv[jiii]-bzdv[iiii])*w2m3m4m
-             +(bzdv[jjii]-bzdv[ijii])*w23m4m
-             +(bzdv[jiji]-bzdv[iiji])*w2m34m
-             +(bzdv[jjji]-bzdv[ijji])*w234m
-             +(bzdv[jiij]-bzdv[iiij])*w2m3m4
-             +(bzdv[jjij]-bzdv[ijij])*w23m4
-             +(bzdv[jijj]-bzdv[iijj])*w2m34
-             +(bzdv[jjjj]-bzdv[ijjj])*w234)/dx
+            ((bzvec[jiii]-bzvec[iiii])*w2m3m4m
+             +(bzvec[jjii]-bzvec[ijii])*w23m4m
+             +(bzvec[jiji]-bzvec[iiji])*w2m34m
+             +(bzvec[jjji]-bzvec[ijji])*w234m
+             +(bzvec[jiij]-bzvec[iiij])*w2m3m4
+             +(bzvec[jjij]-bzvec[ijij])*w23m4
+             +(bzvec[jijj]-bzvec[iijj])*w2m34
+             +(bzvec[jjjj]-bzvec[ijjj])*w234)/dx
             -bfac1*y[idx, 0]+bfac2*y[idx, 0]*y[idx, 2]*y[idx, 2]
         )
         
         dbzdy[idx]=(
-            ((bzdv[ijii]-bzdv[iiii])*w1m3m4m
-             +(bzdv[jjii]-bzdv[jiii])*w13m4m
-             +(bzdv[ijji]-bzdv[iiji])*w1m34m
-             +(bzdv[jjji]-bzdv[jiji])*w134m
-             +(bzdv[ijij]-bzdv[iiij])*w1m3m4
-             +(bzdv[jjij]-bzdv[jiij])*w13m4
-             +(bzdv[ijjj]-bzdv[iijj])*w1m34
-             +(bzdv[jjjj]-bzdv[jijj])*w134)/dy
+            ((bzvec[ijii]-bzvec[iiii])*w1m3m4m
+             +(bzvec[jjii]-bzvec[jiii])*w13m4m
+             +(bzvec[ijji]-bzvec[iiji])*w1m34m
+             +(bzvec[jjji]-bzvec[jiji])*w134m
+             +(bzvec[ijij]-bzvec[iiij])*w1m3m4
+             +(bzvec[jjij]-bzvec[jiij])*w13m4
+             +(bzvec[ijjj]-bzvec[iijj])*w1m34
+             +(bzvec[jjjj]-bzvec[jijj])*w134)/dy
             -bfac1*y[idx, 1]+bfac2*y[idx, 1]*y[idx, 2]*y[idx, 2]
         )
         
         dbzdz[idx]=(
-            ((bzdv[iiji]-bzdv[iiii])*w1m2m4m
-             +(bzdv[jiji]-bzdv[jiii])*w12m4m
-             +(bzdv[ijji]-bzdv[ijii])*w1m24m
-             +(bzdv[jjji]-bzdv[jjii])*w124m
-             +(bzdv[iijj]-bzdv[iiij])*w1m2m4
-             +(bzdv[jijj]-bzdv[jiij])*w12m4
-             +(bzdv[ijjj]-bzdv[ijij])*w1m24
-             +(bzdv[jjjj]-bzdv[jjij])*w124)/dz
+            ((bzvec[iiji]-bzvec[iiii])*w1m2m4m
+             +(bzvec[jiji]-bzvec[jiii])*w12m4m
+             +(bzvec[ijji]-bzvec[ijii])*w1m24m
+             +(bzvec[jjji]-bzvec[jjii])*w124m
+             +(bzvec[iijj]-bzvec[iiij])*w1m2m4
+             +(bzvec[jijj]-bzvec[jiij])*w12m4
+             +(bzvec[ijjj]-bzvec[ijij])*w1m24
+             +(bzvec[jjjj]-bzvec[jjij])*w124)/dz
             -3.*bfac1*y[idx, 2]+bfac2*y[idx, 2]*y[idx, 2]*y[idx, 2]
         )
         
