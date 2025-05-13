@@ -22,7 +22,7 @@ def _setup_field_model(charge=-1, backwards_time=False):
     x_grid, y_grid, z_grid, t_grid = np.meshgrid(x_axis, y_axis, z_axis, t_axis, indexing="ij")
     r_inner = 1 * constants.R_earth
 
-    axes = Axes(t_axis, x_axis, y_axis, z_axis, r_inner)
+    axes = Axes(x_axis, y_axis, z_axis, t_axis, r_inner)
 
     # Setup field model (no external field)
     Bx = np.zeros(x_grid.shape) * units.nT

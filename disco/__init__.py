@@ -65,17 +65,17 @@ class FieldModel:
 
         Parameters
         ----------
-        Bx: array of shape (nt, nx, ny, nz), with units
+        Bx: array of shape (nx, ny, nz, nt), with units
           Magnetic Field X component
-        By: array of shape (nt, nx, ny, nz), with units
+        By: array of shape (nx, ny, nz, nt), with units
           Magnetic Field Y component
-        Bz: array of shape (nt, nx, ny, nz), with units
+        Bz: array of shape (nx, ny, nz, nt), with units
           Magnetic Field Z component
-        Ex: array of shape (nt, nx, ny, nz), with units
+        Ex: array of shape (nx, ny, nz, nt), with units
           Electric Field X component
-        Ey: array of shape (nt, nx, ny, nz), with units
+        Ey: array of shape (nx, ny, nz, nt), with units
           Electric Field Y component
-        Ez: array of shape (nt, nx, ny, nz), with units
+        Ez: array of shape (nx, ny, nz, nt), with units
           Electric Field Z component
         """
         q = charge
@@ -278,24 +278,24 @@ class Axes:
     """1D arrays of rectilinear grid axes
 
     Attributes
-      t: time axis
       x: x axis
       y: y axis
       z: z axis
+      t: time axis
       r_inner: inner boundary
     """
 
-    def __init__(self, t, x, y, z, r_inner):
+    def __init__(self, x, y, z, t, r_inner):
         """Initialize instance that is dimensionalized and stored
         on the GPU.
 
         Input arguments should have astropy units
         """
-        assert len(t.shape) == 1
         assert len(x.shape) == 1
         assert len(y.shape) == 1
         assert len(z.shape) == 1
-
+        assert len(t.shape) == 1
+        
         Re = constants.R_earth
         self.t = cp.array(_redim_time(t))
         self.x = cp.array((x / Re).to(1).value)
