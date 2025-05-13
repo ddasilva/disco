@@ -583,6 +583,7 @@ def do_step_kernel(
     t_axis,
     nt,
     r_inner,
+    integrate_backwards,
 ):
     """[CUPY KERNEL] Do a Runge-Kutta Step
 
@@ -624,7 +625,10 @@ def do_step_kernel(
         scale = 0.84 * (tolerance / err_total) ** (1 / 4)
 
         # Does not exceed target integration
-        stopped[idx] |= t[idx] + h[idx] > t_final[idx]
+        if integrate_backwards:
+            stopped[idx] |= t[idx] + h[idx] < t_final[idx]
+        else:
+            stopped[idx] |= t[idx] + h[idx] > t_final[idx]
 
         # Within x,y,z axes bounds
         stopped[idx] |= z_next[idx, 0] < x_axis[0]

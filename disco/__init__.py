@@ -35,7 +35,8 @@ class TraceConfig:
     t_initial: Quantity (time)
       Start time of integration
     h_initial: Quantity (time)
-      Initial step size in time
+      Initial step size in time (leave as positive even if integrating
+      backwards)
     rtol: float
       Relative tolerance for adaptive integration
     integrate_backwards: bool
@@ -308,12 +309,16 @@ class Axes:
 
         Returns instance of _RectilinearNeighbors
         """
+        field_i = cp.searchsorted(self.x, pos_x)
+        field_j = cp.searchsorted(self.y, pos_y)
+        field_k = cp.searchsorted(self.z, pos_z)
+        field_l = cp.searchsorted(self.t, t, side="right")
+
         return _RectilinearNeighbors(
-            # side='right' helps first time step
-            field_i=cp.searchsorted(self.x, pos_x),
-            field_j=cp.searchsorted(self.y, pos_y),
-            field_k=cp.searchsorted(self.z, pos_z),
-            field_l=cp.searchsorted(self.t, t, side="right"),
+            field_i=field_i,
+            field_j=field_j,
+            field_k=field_k,
+            field_l=field_l,
         )
 
 
@@ -374,6 +379,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     y[:, 4] = particle_state.magnetic_moment
 
     h = cp.zeros(npart) + _redim_time(config.h_initial)
+    if config.integrate_backwards:
+        h *= -1
 
     t_final = _redim_time(config.t_final)
     all_complete = False
@@ -434,20 +441,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             hist_h.append(h.get())
 
         num_iterated = _do_step(
-            k1,
-            k2,
-            k3,
-            k4,
-            k5,
-            k6,
-            y,
-            h,
-            t,
-            config.rtol,
-            t_final,
-            field_model,
-            stopped,
-            config.stopping_conditions,
+            k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config
         )
         all_complete = cp.all(stopped)
         iter_count += 1
@@ -584,9 +578,7 @@ def _rhs(t, y, field_model, config):
     return dydt, B
 
 
-def _do_step(
-    k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped, stopping_conditions
-):
+def _do_step(k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config):
     """Do a Runge-Kutta Step.
 
     Args
@@ -594,17 +586,15 @@ def _do_step(
       y: current state vector
       h: current vector of step sizes
       t: current vector of particle times
-      rtol: relative tolerance
       t_final: final time (dimensionalized)
       field_model: instance of libgputrace.FieldModel
       stopped: boolean array of whether integration has stopped
-      stopped_conditions: list of callables
     Returns
       num_iterated: number of particles iterated
     """
     # Evaluate Stopping Conditions
-    if stopping_conditions:
-        for stop_cond in stopping_conditions:
+    if config.stopping_conditions:
+        for stop_cond in config.stopping_conditions:
             stopped |= stop_cond(y, t, field_model)
 
     # Nan signals some major problem in the code, better to stop immediately
@@ -616,7 +606,7 @@ def _do_step(
     grid_size = int(math.ceil(arr_size / block_size))
     y_next = cp.zeros(y.shape)
     z_next = cp.zeros(y.shape)
-    rtol_arr = cp.zeros(arr_size) + rtol
+    rtol_arr = cp.zeros(arr_size) + config.rtol
     t_final_arr = cp.zeros(arr_size) + t_final
     r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
     mask = cp.zeros(arr_size, dtype=bool)
@@ -646,6 +636,7 @@ def _do_step(
         field_model.axes.t,
         field_model.axes.t.size,
         r_inner,
+        config.integrate_backwards,
     )
 
     num_iterated = mask.sum()

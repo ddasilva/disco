@@ -6,13 +6,18 @@ from scipy.constants import elementary_charge
 from .. import TraceConfig, Axes, FieldModel, ParticleState, trace_trajectory
 
 
-def _setup_field_model(charge=-1):
+def _setup_field_model(charge=-1, backwards_time=False):
     # Setup axes and grid
     grid_spacing = 0.5
-    t_axis = np.arange(5) * units.s
+
     x_axis = np.arange(-10, 10, grid_spacing) * constants.R_earth
     y_axis = np.arange(-10, 10, grid_spacing) * constants.R_earth
     z_axis = np.arange(-5, 5, grid_spacing) * constants.R_earth
+
+    if backwards_time:
+        t_axis = np.arange(-5, 2) * units.s
+    else:
+        t_axis = np.arange(-1, 5) * units.s
 
     x_grid, y_grid, z_grid, t_grid = np.meshgrid(x_axis, y_axis, z_axis, t_axis, indexing="ij")
     r_inner = 1 * constants.R_earth
@@ -177,3 +182,22 @@ def test_oob_rinner():
     r = np.sqrt(hist.x**2 + hist.y**2 + hist.z**2)
 
     assert np.all(r > field_model.axes.r_inner)
+
+
+def test_bouncing_integrate_backwards():
+    """Tests bouncing a particle in the outer radiation belt
+    with particle integrating backwards in time
+    """
+    config = TraceConfig(
+        t_final=-1 * units.s,
+        h_initial=5 * units.ms,
+        rtol=1e-2,
+        output_freq=1,
+        integrate_backwards=True,
+    )
+    field_model = _setup_field_model(backwards_time=True)
+    particle_state = _setup_particle_state(pos_x=6.6, pitch_angle=0)
+
+    hist = trace_trajectory(config, particle_state, field_model, verbose=0)
+
+    assert hist.x.shape[0] > 100
