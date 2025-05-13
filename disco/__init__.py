@@ -3,10 +3,8 @@ import math
 import sys
 from typing import Any, Optional, List, Callable
 
-
 from astropy.units import Quantity
 import cupy as cp
-from cupyx import jit
 import numpy as np
 
 from disco.constants import RK45Coeffs
@@ -171,7 +169,6 @@ class FieldModel:
         grid_size = int(math.ceil(arr_size / block_size))
 
         multi_interp_kernel[grid_size, block_size](
-            arr_size,
             nx,
             ny,
             nz,
@@ -345,16 +342,24 @@ class _RectilinearNeighbors:
 
 
 def trace_trajectory(config, particle_state, field_model, verbose=1):
-    """Perform a euler integration particle trace.
+    """Calculate a particle trajectory.
 
-    Works on a rectilinear grid.
+    Parameters
+    ----------
+    config: TraceConfig
+       Configuration for perorming the trace
+    particle_state: ParticleState
+       Initial conditions of the particles
+    field_model: FieldModel
+       Magnetic and Electric field context
+    verbose: int
+      Set to zero to supress print statements
 
-    Args
-      config: instance of libgputrace.TraceConfig
-      particle_state: instance of libgputrace.ParticleState
-      field_model: instance of libgputrace.FieldModel
     Returns
-      hist: instance of libgputrace.ParticleHistory
+    --------
+    hist: ParticleHistory
+       History of the trace. If output_freq=None, contains only the last
+       step.
     """
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
@@ -546,7 +551,6 @@ def _rhs(t, y, field_model, config):
     dydt = cp.zeros((arr_size, 5))
 
     rhs_kernel[grid_size, block_size](
-        arr_size,
         y,
         t,
         Bx,
@@ -618,7 +622,6 @@ def _do_step(
     mask = cp.zeros(arr_size, dtype=bool)
 
     do_step_kernel[grid_size, block_size](
-        arr_size,
         k1,
         k2,
         k3,

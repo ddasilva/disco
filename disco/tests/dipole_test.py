@@ -1,6 +1,4 @@
-import time
 import numpy as np
-import pandas as pd
 
 from astropy import constants, units
 from scipy.constants import elementary_charge
@@ -179,7 +177,3 @@ def test_oob_rinner():
     r = np.sqrt(hist.x**2 + hist.y**2 + hist.z**2)
 
     assert np.all(r > field_model.axes.r_inner)
-
-
-if __name__ == "__main__":
-    main()

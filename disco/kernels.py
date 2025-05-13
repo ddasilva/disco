@@ -6,7 +6,6 @@ from disco.constants import RK45Coeffs
 
 @jit.rawkernel()
 def rhs_kernel(
-    arr_size,
     y,
     t,
     Bx_arr,
@@ -44,19 +43,23 @@ def rhs_kernel(
     Writes output to dydt[idx, :]
     """
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+    oob = False
 
-    if idx < arr_size and not (
-        # Out of bounds check
-        y[idx, 0] < x_axis[0]
-        or y[idx, 0] > x_axis[nx - 1]
-        or y[idx, 1] < y_axis[0]
-        or y[idx, 1] > y_axis[ny - 1]
-        or y[idx, 2] < z_axis[0]
-        or y[idx, 2] > z_axis[nz - 1]
-        or t[idx] < t_axis[0]
-        or t[idx] > t_axis[nt - 1]
-        or (y[idx, 0] ** 2 + y[idx, 1] ** 2 + y[idx, 2] ** 2) ** 0.5 < r_inner[idx]
-    ):
+    # Out of bounds check
+    if idx < y.shape[0]:
+        oob = (
+            y[idx, 0] < x_axis[0]
+            or y[idx, 0] > x_axis[nx - 1]
+            or y[idx, 1] < y_axis[0]
+            or y[idx, 1] > y_axis[ny - 1]
+            or y[idx, 2] < z_axis[0]
+            or y[idx, 2] > z_axis[nz - 1]
+            or t[idx] < t_axis[0]
+            or t[idx] > t_axis[nt - 1]
+            or (y[idx, 0] ** 2 + y[idx, 1] ** 2 + y[idx, 2] ** 2) ** 0.5 < r_inner[idx]
+        )
+
+    if idx < y.shape[0] and not oob:
         # Pull variables out of arrays
         ppar = y[idx, 3]
         M = y[idx, 4]
@@ -121,7 +124,6 @@ def rhs_kernel(
 
 @jit.rawkernel()
 def multi_interp_kernel(
-    arr_size,
     nx,
     ny,
     nz,
@@ -173,19 +175,24 @@ def multi_interp_kernel(
     Code adapted from fortran.
     """
     idx = jit.blockDim.x * jit.blockIdx.x + jit.threadIdx.x
+    oob = False
 
-    if idx < arr_size and not (
-        # Out of bounds check
-        y[idx, 0] < x_axis[0]
-        or y[idx, 0] > x_axis[nx - 1]
-        or y[idx, 1] < y_axis[0]
-        or y[idx, 1] > y_axis[ny - 1]
-        or y[idx, 2] < z_axis[0]
-        or y[idx, 2] > z_axis[nz - 1]
-        or t[idx] < t_axis[0]
-        or t[idx] > t_axis[nt - 1]
-        or (y[idx, 0] ** 2 + y[idx, 1] ** 2 + y[idx, 2] ** 2) ** 0.5 < r_inner[idx]
-    ):
+    # Out of bounds check
+    if idx < y.shape[0]:
+        oob = (
+            y[idx, 0] < x_axis[0]
+            or y[idx, 0] > x_axis[nx - 1]
+            or y[idx, 1] < y_axis[0]
+            or y[idx, 1] > y_axis[ny - 1]
+            or y[idx, 2] < z_axis[0]
+            or y[idx, 2] > z_axis[nz - 1]
+            or t[idx] < t_axis[0]
+            or t[idx] > t_axis[nt - 1]
+            or (y[idx, 0] ** 2 + y[idx, 1] ** 2 + y[idx, 2] ** 2) ** 0.5 < r_inner[idx]
+        )
+
+    # Main body of the kernel
+    if idx < y.shape[0] and not oob:
         dx = x_axis[ix[idx] + 1] - x_axis[ix[idx]]
         dy = y_axis[iy[idx] + 1] - y_axis[iy[idx]]
         dz = z_axis[iz[idx] + 1] - z_axis[iz[idx]]
@@ -552,7 +559,6 @@ def multi_interp_kernel(
 
 @jit.rawkernel()
 def do_step_kernel(
-    arr_size,
     k1,
     k2,
     k3,
@@ -586,7 +592,7 @@ def do_step_kernel(
     R = RK45Coeffs
     nstate = 5
 
-    if idx < arr_size:
+    if idx < y.shape[0]:
         # Compute thte total error in the position and momentum
         err_total = 0.0
         ynorm = 0.0
