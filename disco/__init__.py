@@ -18,6 +18,7 @@ from disco.kernels import (
 
 from astropy import constants, units
 
+
 @dataclass
 class TraceConfig:
     """Configuration for running the tracing code.
@@ -33,7 +34,7 @@ class TraceConfig:
     stopping_conditions: list of callables
       List of callables (functions) that return bools. Arguments are
       y, t, and field_model.
-    t_initial: Quantity (time) 
+    t_initial: Quantity (time)
       Start time of integration
     h_initial: Quantity (time)
       Initial step size in time
@@ -42,6 +43,7 @@ class TraceConfig:
     integrate_backwards: bool
       Set to True to integrate backwards in time
     """
+
     t_final: Quantity
     output_freq: Optional[int] = None
     stopping_conditions: Optional[List[Callable]] = None
@@ -50,19 +52,18 @@ class TraceConfig:
     rtol: float = 1e-2
     integrate_backwards: bool = False
 
-    
+
 class FieldModel:
-    """Magnetic and electric field models used to propagate particles.
-    """    
+    """Magnetic and electric field models used to propagate particles."""
+
     DEFAULT_RAW_B0 = 31e3 * units.nT
 
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes,
-                 B0=DEFAULT_RAW_B0):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes, B0=DEFAULT_RAW_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         mass is not part of field model, but is used to redimensionalize.
         Input argument should have astropy units attached.
-        
+
         Parameters
         ----------
         Bx: array of shape (nt, nx, ny, nz), with units
@@ -81,22 +82,22 @@ class FieldModel:
         q = charge
         Re = constants.R_earth
         c = constants.c
-        sf = (q * Re / (mass * c**2))
+        sf = q * Re / (mass * c**2)
         B_units = units.s / Re
 
         self.negative_charge = q.value < 0
         self.Bx = cp.array((sf * Bx).to(B_units).value)
         self.By = cp.array((sf * By).to(B_units).value)
-        self.Bz = cp.array((sf * Bz).to(B_units).value)        
+        self.Bz = cp.array((sf * Bz).to(B_units).value)
         self.B0 = float((sf * B0).to(B_units).value)
         self.Ex = cp.array((sf * Ex).to(1).value)
         self.Ey = cp.array((sf * Ey).to(1).value)
-        self.Ez = cp.array((sf * Ez).to(1).value)        
+        self.Ez = cp.array((sf * Ez).to(1).value)
         self.axes = axes
 
     def multi_interp(self, t, y):
         """Interpolate field values at given positions.
-        
+
         Paramaters
         ----------
         t: cupy array
@@ -106,7 +107,7 @@ class FieldModel:
 
         Returns
         -------
-        Bx, By, Bz, Ex, Ey, Ez, dBxdx, dBxdy, dBxdz, dBydx, dBydy, dBydz, 
+        Bx, By, Bz, Ex, Ey, Ez, dBxdx, dBxdy, dBxdz, dBydx, dBydy, dBydz,
         dBzdx, dBzdy, dBzdz, B, dBdx, dBdy, dBdz
         """
         # Use Axes object to get neighbors of cell
@@ -114,36 +115,36 @@ class FieldModel:
 
         # Setup variables to send to GPU kernel
         arr_size = y.shape[0]
-                
+
         nx = self.axes.x.size
         ny = self.axes.y.size
         nz = self.axes.z.size
         nt = self.axes.t.size
-        nxy = nx * ny        
+        nxy = nx * ny
         nxyz = nxy * nz
         nttl = nxyz * nt
 
         b0 = cp.zeros(arr_size) + self.B0
         r_inner = cp.zeros(arr_size) + self.axes.r_inner
-        
+
         x_axis = self.axes.x
         y_axis = self.axes.y
         z_axis = self.axes.z
         t_axis = self.axes.t
-        
+
         ix, iy, iz, it = (
             neighbors.field_i,
             neighbors.field_j,
             neighbors.field_k,
-            neighbors.field_l,            
+            neighbors.field_l,
         )
 
-        bxvec = self.Bx.reshape(nttl, order='F')
-        byvec = self.By.reshape(nttl, order='F')
-        bzvec = self.Bz.reshape(nttl, order='F')
-        exvec = self.Ex.reshape(nttl, order='F')
-        eyvec = self.Ey.reshape(nttl, order='F')
-        ezvec = self.Ez.reshape(nttl, order='F')
+        bxvec = self.Bx.reshape(nttl, order="F")
+        byvec = self.By.reshape(nttl, order="F")
+        bzvec = self.Bz.reshape(nttl, order="F")
+        exvec = self.Ex.reshape(nttl, order="F")
+        eyvec = self.Ey.reshape(nttl, order="F")
+        ezvec = self.Ez.reshape(nttl, order="F")
 
         bx = cp.zeros(arr_size)
         by = cp.zeros(arr_size)
@@ -153,44 +154,93 @@ class FieldModel:
         ez = cp.zeros(arr_size)
         dbxdx = cp.zeros(arr_size)
         dbxdy = cp.zeros(arr_size)
-        dbxdz = cp.zeros(arr_size) 
+        dbxdz = cp.zeros(arr_size)
         dbydx = cp.zeros(arr_size)
         dbydy = cp.zeros(arr_size)
-        dbydz = cp.zeros(arr_size) 
+        dbydz = cp.zeros(arr_size)
         dbzdx = cp.zeros(arr_size)
         dbzdy = cp.zeros(arr_size)
-        dbzdz = cp.zeros(arr_size) 
+        dbzdz = cp.zeros(arr_size)
         b = cp.zeros(arr_size)
         dbdx = cp.zeros(arr_size)
         dbdy = cp.zeros(arr_size)
         dbdz = cp.zeros(arr_size)
-        
+
         # Call GPU Kernel
         block_size = 256
         grid_size = int(math.ceil(arr_size / block_size))
 
         multi_interp_kernel[grid_size, block_size](
-            arr_size, nx, ny, nz, nt, nxy, nxyz, nttl,
-            ix, iy, iz, it,
-            t, y, b0, r_inner,
-            t_axis, x_axis, y_axis, z_axis, 
-            bxvec, byvec, bzvec, exvec, eyvec, ezvec,
-            bx, by, bz, ex, ey, ez,
-            dbxdx, dbxdy, dbxdz, 
-            dbydx, dbydy, dbydz, 
-            dbzdx, dbzdy, dbzdz, 
-            b, dbdx, dbdy, dbdz,
+            arr_size,
+            nx,
+            ny,
+            nz,
+            nt,
+            nxy,
+            nxyz,
+            nttl,
+            ix,
+            iy,
+            iz,
+            it,
+            t,
+            y,
+            b0,
+            r_inner,
+            t_axis,
+            x_axis,
+            y_axis,
+            z_axis,
+            bxvec,
+            byvec,
+            bzvec,
+            exvec,
+            eyvec,
+            ezvec,
+            bx,
+            by,
+            bz,
+            ex,
+            ey,
+            ez,
+            dbxdx,
+            dbxdy,
+            dbxdz,
+            dbydx,
+            dbydy,
+            dbydz,
+            dbzdx,
+            dbzdy,
+            dbzdz,
+            b,
+            dbdx,
+            dbdy,
+            dbdz,
         )
-        
+
         # Return values as tuple
         return (
-            bx, by, bz, ex, ey, ez,
-            dbxdx, dbxdy, dbxdz, 
-            dbydx, dbydy, dbydz, 
-            dbzdx, dbzdy, dbzdz, 
-            b, dbdx, dbdy, dbdz,
+            bx,
+            by,
+            bz,
+            ex,
+            ey,
+            ez,
+            dbxdx,
+            dbxdy,
+            dbxdz,
+            dbydx,
+            dbydy,
+            dbydz,
+            dbzdx,
+            dbzdy,
+            dbzdz,
+            b,
+            dbdx,
+            dbdy,
+            dbdz,
         )
-    
+
 
 class ParticleState:
     """1D arrays of cartesian particle position component"
@@ -204,13 +254,14 @@ class ParticleState:
     magnetic_moment: first invariant
     mass: rest mass
     """
+
     def __init__(self, x, y, z, ppar, magnetic_moment, mass, charge):
-        """Get a ParticleState() instance that is dimensionalized 
+        """Get a ParticleState() instance that is dimensionalized
         and stored on the GPU.
-        
-        Input argument should have astropy units attached, except 
+
+        Input argument should have astropy units attached, except
         `charge'.
-        Returns ParticleState instance         
+        Returns ParticleState instance
         """
         # Using redimensionalization of Elkington et al., 2002
         q = charge
@@ -221,12 +272,10 @@ class ParticleState:
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
         self.ppar = cp.array((ppar / (c * mass)).to(1).value)
-        self.magnetic_moment = cp.array(
-            (magnetic_moment / (q * Re)).to(Re/units.s).value
-        )
+        self.magnetic_moment = cp.array((magnetic_moment / (q * Re)).to(Re / units.s).value)
         self.mass = cp.array(mass.to(units.kg).value)
-        
-        
+
+
 class Axes:
     """1D arrays of rectilinear grid axes
 
@@ -237,6 +286,7 @@ class Axes:
       z: z axis
       r_inner: inner boundary
     """
+
     def __init__(self, t, x, y, z, r_inner):
         """Initialize instance that is dimensionalized and stored
         on the GPU.
@@ -247,7 +297,7 @@ class Axes:
         assert len(x.shape) == 1
         assert len(y.shape) == 1
         assert len(z.shape) == 1
-        
+
         Re = constants.R_earth
         self.t = cp.array(_redim_time(t))
         self.x = cp.array((x / Re).to(1).value)
@@ -263,53 +313,54 @@ class Axes:
         """
         return _RectilinearNeighbors(
             # side='right' helps first time step
-            field_i=cp.searchsorted(self.x, pos_x) ,
-            field_j=cp.searchsorted(self.y, pos_y) ,
-            field_k=cp.searchsorted(self.z, pos_z) ,
-            field_l=cp.searchsorted(self.t, t, side='right'),
-        )        
+            field_i=cp.searchsorted(self.x, pos_x),
+            field_j=cp.searchsorted(self.y, pos_y),
+            field_k=cp.searchsorted(self.z, pos_z),
+            field_l=cp.searchsorted(self.t, t, side="right"),
+        )
 
-    
+
 @dataclass
 class ParticleHistory:
-    """History of positions, parallel momentum, and useful values..
-    """
+    """History of positions, parallel momentum, and useful values.."""
+
     t: Any
     x: Any
     y: Any
     z: Any
     ppar: Any
-    B: Any      # local field strength
-    W: Any      # energy
-    h: Any      # step size
+    B: Any  # local field strength
+    W: Any  # energy
+    h: Any  # step size
 
-        
+
 @dataclass
 class _RectilinearNeighbors:
     """Neighbors of given particles, used for interpolation"""
+
     field_i: Any
     field_j: Any
     field_k: Any
     field_l: Any
-        
+
 
 def trace_trajectory(config, particle_state, field_model, verbose=1):
     """Perform a euler integration particle trace.
-    
+
     Works on a rectilinear grid.
 
     Args
       config: instance of libgputrace.TraceConfig
       particle_state: instance of libgputrace.ParticleState
       field_model: instance of libgputrace.FieldModel
-    Returns  
+    Returns
       hist: instance of libgputrace.ParticleHistory
     """
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
     t = cp.zeros(npart) + _redim_time(config.t_initial)
-    
+
     y = cp.zeros((particle_state.x.size, 5))
     y[:, 0] = particle_state.x
     y[:, 1] = particle_state.y
@@ -341,37 +392,25 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 
         # Call _rhs() function to implement multiple function evaluations of
         # right hand side.
-        k1, B = _rhs(
-            t,
-            y,
-            field_model, config
-        )        
-        k2, _ = _rhs(
-            t + h * R.a2,
-            y + h_ * R.b21 * k1,
-            field_model, config
-        )
-        k3, _ = _rhs(
-            t + h * R.a3,
-            y + h_ * (R.b31 * k1 + R.b32 * k2),
-            field_model, config
-        )
+        k1, B = _rhs(t, y, field_model, config)
+        k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, config)
+        k3, _ = _rhs(t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, config)
         k4, _ = _rhs(
-            t + h * R.a4,
-            y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
-            field_model, config
+            t + h * R.a4, y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3), field_model, config
         )
         k5, _ = _rhs(
             t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
-            field_model, config
+            field_model,
+            config,
         )
         k6, _ = _rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
-            field_model, config
+            field_model,
+            config,
         )
-            
+
         k1 *= h_
         k2 *= h_
         k3 *= h_
@@ -380,10 +419,9 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         k6 *= h_
 
         # Save incremented particles to history
-        if (config.output_freq is not None
-            and (iter_count % config.output_freq == 0)):
-            gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3]**2)
-            W = gamma - 1            
+        if config.output_freq is not None and (iter_count % config.output_freq == 0):
+            gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
+            W = gamma - 1
             hist_t.append(t.get())
             hist_y.append(y.get())
             hist_B.append(B.get())
@@ -391,34 +429,48 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             hist_h.append(h.get())
 
         num_iterated = _do_step(
-            k1, k2, k3, k4, k5, k6, y, h, t, config.rtol, t_final,
-            field_model, stopped, config.stopping_conditions,
+            k1,
+            k2,
+            k3,
+            k4,
+            k5,
+            k6,
+            y,
+            h,
+            t,
+            config.rtol,
+            t_final,
+            field_model,
+            stopped,
+            config.stopping_conditions,
         )
         all_complete = cp.all(stopped)
         iter_count += 1
 
         if verbose > 0:
-            r_mean = cp.sqrt(y[:, 0]**2 + y[:, 1]**2 + y[:, 2]**2).mean()
+            r_mean = cp.sqrt(y[:, 0] ** 2 + y[:, 1] ** 2 + y[:, 2] ** 2).mean()
             h_step = _undim_time(float(h.mean())).to(units.ms).value
-        
-            print(f'Complete: {100 * min(t.min() / t_final, 1):.1f}% '
-                  f'(iter {iter_count}, {num_iterated} iterated, h mean '
-                  f'{h_step:.2f} ms, r mean {r_mean:.2f})')
-            
+
+            print(
+                f"Complete: {100 * min(t.min() / t_final, 1):.1f}% "
+                f"(iter {iter_count}, {num_iterated} iterated, h mean "
+                f"{h_step:.2f} ms, r mean {r_mean:.2f})"
+            )
+
             sys.stdout.flush()
 
     if verbose > 0:
-        print(f'Took {iter_count} iterations')
+        print(f"Took {iter_count} iterations")
 
     # Always save last step of each, even if not recording full history
-    gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3]**2)
-    W = gamma - 1            
+    gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
+    W = gamma - 1
     hist_t.append(t.get())
     hist_y.append(y.get())
     hist_B.append(B.get())
     hist_W.append(W.get())
-    hist_h.append(h.get())    
-    
+    hist_h.append(h.get())
+
     # Prepare history object and return instance of ParticleHistory
     hist_t = np.array(hist_t)
     hist_B = np.array(hist_B)
@@ -429,10 +481,16 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_pos_y = hist_y[:, :, 1]
     hist_pos_z = hist_y[:, :, 2]
     hist_ppar = hist_y[:, :, 3]
-    
+
     return ParticleHistory(
-        t=hist_t, x=hist_pos_x, y=hist_pos_y, z=hist_pos_z,
-        ppar=hist_ppar, B=hist_B, W=hist_W, h=hist_h,
+        t=hist_t,
+        x=hist_pos_x,
+        y=hist_pos_y,
+        z=hist_pos_z,
+        ppar=hist_ppar,
+        B=hist_B,
+        W=hist_W,
+        h=hist_h,
     )
 
 
@@ -446,19 +504,31 @@ def _rhs(t, y, field_model, config):
       axes: instance of Axes (rectilinear grid axes)
       config: instance of Config (tracing configuration)
     Returns
-      dydt: cupy array (nparticles, 5). First three columns are position, 
+      dydt: cupy array (nparticles, 5). First three columns are position,
         fourth is parallel momentum, fifth is relativistic magnetic moment
     """
     # Get B Values
     (
-        Bx, By, Bz, Ex, Ey, Ez,
-        dBxdx, dBxdy, dBxdz, 
-        dBydx, dBydy, dBydz, 
-        dBzdx, dBzdy, dBzdz, 
-        B, dBdx, dBdy, dBdz
-    ) = (
-        field_model.multi_interp(t, y)
-    )
+        Bx,
+        By,
+        Bz,
+        Ex,
+        Ey,
+        Ez,
+        dBxdx,
+        dBxdy,
+        dBxdz,
+        dBydx,
+        dBydy,
+        dBydz,
+        dBzdx,
+        dBzdy,
+        dBzdz,
+        B,
+        dBdx,
+        dBdy,
+        dBdz,
+    ) = field_model.multi_interp(t, y)
 
     # need to account for dimensionalization of magnitude
     if field_model.negative_charge:
@@ -466,7 +536,7 @@ def _rhs(t, y, field_model, config):
         dBdx *= -1
         dBdy *= -1
         dBdz *= -1
-    
+
     # Launch Kernel to handle rest of RHS
     arr_size = y.shape[0]
     block_size = 256
@@ -476,9 +546,16 @@ def _rhs(t, y, field_model, config):
     dydt = cp.zeros((arr_size, 5))
 
     rhs_kernel[grid_size, block_size](
-        arr_size, y, t, 
-        Bx, By, Bz, B,
-        Ex, Ey, Ez,
+        arr_size,
+        y,
+        t,
+        Bx,
+        By,
+        Bz,
+        B,
+        Ex,
+        Ey,
+        Ez,
         field_model.axes.x,
         field_model.axes.y,
         field_model.axes.z,
@@ -488,18 +565,24 @@ def _rhs(t, y, field_model, config):
         field_model.axes.z.size,
         field_model.axes.t.size,
         r_inner,
-        dBdx, dBdy, dBdz,
-        dBxdy, dBxdz, dBydx, dBydz, dBzdx, dBzdy,
+        dBdx,
+        dBdy,
+        dBdz,
+        dBxdy,
+        dBxdz,
+        dBydx,
+        dBydz,
+        dBzdx,
+        dBzdy,
         dydt,
     )
 
     return dydt, B
-    
+
 
 def _do_step(
-        k1, k2, k3, k4, k5, k6, y, h, t,
-        rtol, t_final, field_model, stopped, stopping_conditions
-): 
+    k1, k2, k3, k4, k5, k6, y, h, t, rtol, t_final, field_model, stopped, stopping_conditions
+):
     """Do a Runge-Kutta Step.
 
     Args
@@ -521,34 +604,52 @@ def _do_step(
             stopped |= stop_cond(y, t, field_model)
 
     # Nan signals some major problem in the code, better to stop immediately
-    stopped |= cp.isnan(h) 
+    stopped |= cp.isnan(h)
 
     # Call Kernel to do the rest of the work
     arr_size = k1.shape[0]
     block_size = 1024
     grid_size = int(math.ceil(arr_size / block_size))
     y_next = cp.zeros(y.shape)
-    z_next = cp.zeros(y.shape)    
+    z_next = cp.zeros(y.shape)
     rtol_arr = cp.zeros(arr_size) + rtol
     t_final_arr = cp.zeros(arr_size) + t_final
     r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
     mask = cp.zeros(arr_size, dtype=bool)
-    
+
     do_step_kernel[grid_size, block_size](
-        arr_size, k1, k2, k3, k4, k5, k6, y, y_next, z_next, h, t,
-        rtol_arr, t_final_arr, mask, stopped,
-        field_model.axes.x, field_model.axes.x.size,
-        field_model.axes.y, field_model.axes.y.size,
-        field_model.axes.z, field_model.axes.z.size,
-        field_model.axes.t, field_model.axes.t.size,
+        arr_size,
+        k1,
+        k2,
+        k3,
+        k4,
+        k5,
+        k6,
+        y,
+        y_next,
+        z_next,
+        h,
+        t,
+        rtol_arr,
+        t_final_arr,
+        mask,
+        stopped,
+        field_model.axes.x,
+        field_model.axes.x.size,
+        field_model.axes.y,
+        field_model.axes.y.size,
+        field_model.axes.z,
+        field_model.axes.z.size,
+        field_model.axes.t,
+        field_model.axes.t.size,
         r_inner,
     )
-    
+
     num_iterated = mask.sum()
 
     return num_iterated
 
-                
+
 def _redim_time(val):
     """Redimensionalize a time value.
 
@@ -560,7 +661,7 @@ def _redim_time(val):
     sf = constants.c / constants.R_earth
     return (sf * val).to(1).value
 
-                
+
 def _undim_time(val):
     """Redimensionalize a time value.
 
@@ -571,4 +672,3 @@ def _undim_time(val):
     """
     sf = constants.R_earth / constants.c
     return val * sf
-
