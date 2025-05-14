@@ -50,7 +50,8 @@ class TraceConfig:
     h_initial: Quantity = 1 * units.ms
     rtol: float = 1e-2
     integrate_backwards: bool = False
-
+    iters_max: Optional[int] = None
+    
 
 class FieldModel:
     """Magnetic and electric field models used to propagate particles."""
@@ -395,7 +396,15 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_B = []
     hist_h = []
 
-    while not all_complete:
+    while True:
+        # Stop iterating when all_complete flag is set
+        if all_complete:
+            break
+
+        # Stop iterating if exceeding the maximum iterations
+        if config.iters_max and iter_count >= config.iters_max:
+            break
+        
         # Cupy broadcasting workaround (implicit broading doesn't work)
         h_ = cp.zeros((h.size, 5))
 
@@ -451,7 +460,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             h_step = _undim_time(float(h.mean())).to(units.ms).value
 
             print(
-                f"Complete: {100 * min(t.min() / t_final, 1):.1f}% "
+                f"Time Complete: {100 * min(t.min() / t_final, 1):.3f}% "
+                f"Stopped: {100 * stopped.sum() / stopped.size:.3f}% "
                 f"(iter {iter_count}, {num_iterated} iterated, h mean "
                 f"{h_step:.2f} ms, r mean {r_mean:.2f})"
             )

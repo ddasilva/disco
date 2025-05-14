@@ -630,6 +630,11 @@ def do_step_kernel(
         else:
             stopped[idx] |= t[idx] + h[idx] > t_final[idx]
 
+        # Next step is NaNs
+        for i in range(nstate):
+            stopped[idx] |= cp.isnan(y_next[idx, i])
+            stopped[idx] |= cp.isnan(z_next[idx, i])
+        
         # Within x,y,z axes bounds
         stopped[idx] |= z_next[idx, 0] < x_axis[0]
         stopped[idx] |= z_next[idx, 1] < y_axis[0]
@@ -656,4 +661,5 @@ def do_step_kernel(
             for i in range(nstate):
                 y[idx, i] = z_next[idx, i]
 
-        h[idx] *= scale
+        if not stopped[idx]:
+            h[idx] *= scale
