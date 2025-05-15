@@ -6,6 +6,7 @@ from disco.constants import RK45Coeffs
 
 @jit.rawkernel()
 def rhs_kernel(
+    dydt_arr,
     y,
     t,
     Bx_arr,
@@ -15,15 +16,6 @@ def rhs_kernel(
     Ex_arr,
     Ey_arr,
     Ez_arr,
-    x_axis,
-    y_axis,
-    z_axis,
-    t_axis,
-    nx,
-    ny,
-    nz,
-    nt,
-    r_inner,
     dBdx_arr,
     dBdy_arr,
     dBdz_arr,
@@ -33,7 +25,16 @@ def rhs_kernel(
     dBydz_arr,
     dBzdx_arr,
     dBzdy_arr,
-    dydt_arr,
+    x_axis,
+    y_axis,
+    z_axis,
+    t_axis,
+    nx,
+    ny,
+    nz,
+    nt,
+    r_inner,        
+
 ):
     """[CUPY KERNEL] implements RHS of ODE.
 

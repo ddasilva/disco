@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
   'astropy>=6.0',
+  'h5py>=3.13.0',
   'numpy>=1.22',
   'scipy>=1.15.3',
 ]

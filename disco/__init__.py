@@ -7,7 +7,8 @@ from astropy.units import Quantity
 import cupy as cp
 import numpy as np
 
-from disco.constants import RK45Coeffs
+from disco._field_model import FieldModel, _DimensionalizedFieldModel
+from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
 from disco.kernels import (
     do_step_kernel,
     multi_interp_kernel,
@@ -54,193 +55,6 @@ class TraceConfig:
     reorder_freq: Optional[int] = 25
 
 
-class FieldModel:
-    """Magnetic and electric field models used to propagate particles."""
-
-    DEFAULT_RAW_B0 = 31e3 * units.nT
-
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes, B0=DEFAULT_RAW_B0):
-        """Get an instance that is dimensionalized and stored on the GPU.
-
-        mass is not part of field model, but is used to redimensionalize.
-        Input argument should have astropy units attached.
-
-        Parameters
-        ----------
-        Bx: array of shape (nx, ny, nz, nt), with units
-          Magnetic Field X component
-        By: array of shape (nx, ny, nz, nt), with units
-          Magnetic Field Y component
-        Bz: array of shape (nx, ny, nz, nt), with units
-          Magnetic Field Z component
-        Ex: array of shape (nx, ny, nz, nt), with units
-          Electric Field X component
-        Ey: array of shape (nx, ny, nz, nt), with units
-          Electric Field Y component
-        Ez: array of shape (nx, ny, nz, nt), with units
-          Electric Field Z component
-        """
-        q = charge
-        Re = constants.R_earth
-        c = constants.c
-        sf = q * Re / (mass * c**2)
-        B_units = units.s / Re
-
-        self.negative_charge = q.value < 0
-        self.Bx = cp.array((sf * Bx).to(B_units).value)
-        self.By = cp.array((sf * By).to(B_units).value)
-        self.Bz = cp.array((sf * Bz).to(B_units).value)
-        self.B0 = float((sf * B0).to(B_units).value)
-        self.Ex = cp.array((sf * Ex).to(1).value)
-        self.Ey = cp.array((sf * Ey).to(1).value)
-        self.Ez = cp.array((sf * Ez).to(1).value)
-        self.axes = axes
-
-    def multi_interp(self, t, y, stopped_cutoff):
-        """Interpolate field values at given positions.
-
-        Paramaters
-        ----------
-        t: cupy array
-          Vector of dimensionalized particle times
-        y: cupy array
-           Vector of shape (npart, 5) of particle states
-
-        Returns
-        -------
-        Bx, By, Bz, Ex, Ey, Ez, dBxdx, dBxdy, dBxdz, dBydx, dBydy, dBydz,
-        dBzdx, dBzdy, dBzdz, B, dBdx, dBdy, dBdz
-        """
-        # Use Axes object to get neighbors of cell
-        neighbors = self.axes.get_neighbors(t, y[:, 0], y[:, 1], y[:, 2])
-
-        # Setup variables to send to GPU kernel
-        arr_size = y.shape[0]
-        nx = self.axes.x.size
-        ny = self.axes.y.size
-        nz = self.axes.z.size
-        nt = self.axes.t.size
-        nxy = nx * ny
-        nxyz = nxy * nz
-        nttl = nxyz * nt
-
-        b0 = cp.zeros(arr_size) + self.B0
-        r_inner = cp.zeros(arr_size) + self.axes.r_inner
-
-        x_axis = self.axes.x
-        y_axis = self.axes.y
-        z_axis = self.axes.z
-        t_axis = self.axes.t
-
-        ix, iy, iz, it = (
-            neighbors.field_i,
-            neighbors.field_j,
-            neighbors.field_k,
-            neighbors.field_l,
-        )
-
-        bxvec = self.Bx.reshape(nttl, order="F")
-        byvec = self.By.reshape(nttl, order="F")
-        bzvec = self.Bz.reshape(nttl, order="F")
-        exvec = self.Ex.reshape(nttl, order="F")
-        eyvec = self.Ey.reshape(nttl, order="F")
-        ezvec = self.Ez.reshape(nttl, order="F")
-
-        bx = cp.zeros(arr_size)
-        by = cp.zeros(arr_size)
-        bz = cp.zeros(arr_size)
-        ex = cp.zeros(arr_size)
-        ey = cp.zeros(arr_size)
-        ez = cp.zeros(arr_size)
-        dbxdx = cp.zeros(arr_size)
-        dbxdy = cp.zeros(arr_size)
-        dbxdz = cp.zeros(arr_size)
-        dbydx = cp.zeros(arr_size)
-        dbydy = cp.zeros(arr_size)
-        dbydz = cp.zeros(arr_size)
-        dbzdx = cp.zeros(arr_size)
-        dbzdy = cp.zeros(arr_size)
-        dbzdz = cp.zeros(arr_size)
-        b = cp.zeros(arr_size)
-        dbdx = cp.zeros(arr_size)
-        dbdy = cp.zeros(arr_size)
-        dbdz = cp.zeros(arr_size)
-
-        # Call GPU Kernel
-        block_size = 256
-        grid_size = int(math.ceil(stopped_cutoff / block_size))
-
-        multi_interp_kernel[grid_size, block_size](
-            nx,
-            ny,
-            nz,
-            nt,
-            nxy,
-            nxyz,
-            nttl,
-            ix,
-            iy,
-            iz,
-            it,
-            t,
-            y[:stopped_cutoff],
-            b0,
-            r_inner,
-            t_axis,
-            x_axis,
-            y_axis,
-            z_axis,
-            bxvec,
-            byvec,
-            bzvec,
-            exvec,
-            eyvec,
-            ezvec,
-            bx,
-            by,
-            bz,
-            ex,
-            ey,
-            ez,
-            dbxdx,
-            dbxdy,
-            dbxdz,
-            dbydx,
-            dbydy,
-            dbydz,
-            dbzdx,
-            dbzdy,
-            dbzdz,
-            b,
-            dbdx,
-            dbdy,
-            dbdz,
-        )
-
-        # Return values as tuple
-        return (
-            bx,
-            by,
-            bz,
-            ex,
-            ey,
-            ez,
-            dbxdx,
-            dbxdy,
-            dbxdz,
-            dbydx,
-            dbydy,
-            dbydz,
-            dbzdx,
-            dbzdy,
-            dbzdz,
-            b,
-            dbdx,
-            dbdy,
-            dbdz,
-        )
-
-
 class ParticleState:
     """1D arrays of cartesian particle position component"
 
@@ -258,12 +72,13 @@ class ParticleState:
         """Get a ParticleState() instance that is dimensionalized
         and stored on the GPU.
 
-        Input argument should have astropy units attached, except
-        `charge'.
+        All inputs are arrays except for mass and charge, which are
+        single values. 
+
+        Input argument should have astropy units attached
         Returns ParticleState instance
         """
         # Using redimensionalization of Elkington et al., 2002
-        q = charge
         Re = constants.R_earth
         c = constants.c
 
@@ -271,8 +86,10 @@ class ParticleState:
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
         self.ppar = cp.array((ppar / (c * mass)).to(1).value)
-        self.magnetic_moment = cp.array((magnetic_moment / (q * Re)).to(Re / units.s).value)
-        self.mass = cp.array(mass.to(units.kg).value)
+        self.magnetic_moment = cp.array((magnetic_moment / (charge * Re)).to(Re / units.s).value)
+
+        self.mass = mass.to(units.kg)
+        self.charge = charge.to(units.coulomb)
 
 
 class Axes:
@@ -347,7 +164,7 @@ class _RectilinearNeighbors:
     field_l: Any
 
 
-def trace_trajectory(config, particle_state, field_model, verbose=1):
+def trace_trajectory(config, particle_state, raw_field_model, verbose=1):
     """Calculate a particle trajectory.
 
     Parameters
@@ -367,13 +184,18 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
        History of the trace. If output_freq=None, contains only the last
        step.
     """
+    # Dimensionalize field model; this is done here because it requires
+    # info about the initial particle state
+    field_model = _DimensionalizedFieldModel(
+        raw_field_model, particle_state.mass, particle_state.charge
+    )
+    
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
-    nstate = 5
     t = cp.zeros(npart) + _redim_time(config.t_initial)
 
-    y = cp.zeros((npart, nstate))
+    y = cp.zeros((npart, NSTATE))
     y[:, 0] = particle_state.x
     y[:, 1] = particle_state.y
     y[:, 2] = particle_state.z
@@ -421,9 +243,9 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             stopped_cutoff = int(cp.searchsorted(stopped, cp.ones(1))[0])
 
         # Cupy broadcasting workaround (implicit broading doesn't work)
-        h_ = cp.zeros((h.size, nstate))
+        h_ = cp.zeros((h.size, NSTATE))
 
-        for i in range(nstate):
+        for i in range(NSTATE):
             h_[:, i] = h
 
         # Call _rhs() function to implement multiple function evaluations of
@@ -539,64 +361,59 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 def _rhs(t, y, field_model, config, stopped_cutoff):
     """RIght hand side of the guiding center equation differential equation.
 
-    Args
-      t: ODE derivative variable
-      y: ODE state variable
-      field_model: instance of FieldModel (provides E and B fields)
-      axes: instance of Axes (rectilinear grid axes)
-      config: instance of Config (tracing configuration)
+    Parameters
+    -----------
+    t: cupy array (nparticles,)
+      Dimensionalized time variable
+    y: cupy array (nparticles,)
+      ODE state variable
+    field_model: _DimensionalizedFieldModel 
+      Used to E and B fields and particles
+    axes: Axes
+      Grid information, used for interpolation
+    config: TraceConfig
+      Tracing configuration
+     
     Returns
-      dydt: cupy array (nparticles, 5). First three columns are position,
-        fourth is parallel momentum, fifth is relativistic magnetic moment
+    -------
+    dydt: cupy array (nparticles, NSTATE)
+      First three columns are position, fourth is parallel momentum, 
+      fifth is relativistic magnetic moment. This variable is 
+      dimensionalized. Filled up to `stopped_cutoff`.
+    B: cupy array (nparticles,)
+      Value of B at the particle positions, filled up to
+      `stopped_cutoff`.
     """
-    # Get B Values
-    (
-        Bx,
-        By,
-        Bz,
-        Ex,
-        Ey,
-        Ez,
-        dBxdx,
-        dBxdy,
-        dBxdz,
-        dBydx,
-        dBydy,
-        dBydz,
-        dBzdx,
-        dBzdy,
-        dBzdz,
-        B,
-        dBdx,
-        dBdy,
-        dBdz,
-    ) = field_model.multi_interp(t, y, stopped_cutoff)
-
-    # need to account for dimensionalization of magnitude
-    if field_model.negative_charge:
-        B *= -1
-        dBdx *= -1
-        dBdy *= -1
-        dBdz *= -1
+    # Get B, E Values and partials
+    interp_result = field_model.multi_interp(t, y, stopped_cutoff)
 
     # Launch Kernel to handle rest of RHS
     arr_size = y.shape[0]
-    block_size = 256
-    grid_size = int(math.ceil(stopped_cutoff / block_size))
+    grid_size = int(math.ceil(stopped_cutoff / BLOCK_SIZE))
 
     r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
-    dydt = cp.zeros((arr_size, 5))
+    dydt = cp.zeros((arr_size, NSTATE))
 
-    rhs_kernel[grid_size, block_size](
+    rhs_kernel[grid_size, BLOCK_SIZE](
+        dydt,
         y[:stopped_cutoff],
         t,
-        Bx,
-        By,
-        Bz,
-        B,
-        Ex,
-        Ey,
-        Ez,
+        interp_result.Bx,
+        interp_result.By,
+        interp_result.Bz,
+        interp_result.B,
+        interp_result.Ex,
+        interp_result.Ey,
+        interp_result.Ez,
+        interp_result.dBdx,
+        interp_result.dBdy,
+        interp_result.dBdz,
+        interp_result.dBxdy,
+        interp_result.dBxdz,
+        interp_result.dBydx,
+        interp_result.dBydz,
+        interp_result.dBzdx,
+        interp_result.dBzdy,
         field_model.axes.x,
         field_model.axes.y,
         field_model.axes.z,
@@ -605,20 +422,10 @@ def _rhs(t, y, field_model, config, stopped_cutoff):
         field_model.axes.y.size,
         field_model.axes.z.size,
         field_model.axes.t.size,
-        r_inner,
-        dBdx,
-        dBdy,
-        dBdz,
-        dBxdy,
-        dBxdz,
-        dBydx,
-        dBydz,
-        dBzdx,
-        dBzdy,
-        dydt,
+        r_inner,        
     )
 
-    return dydt, B
+    return dydt, interp_result.B
 
 
 def _do_step(
@@ -626,7 +433,8 @@ def _do_step(
 ):
     """Do a Runge-Kutta Step.
 
-    Args
+    Paramters
+    ---------
       k1-k6: K values for Runge-Kutta
       y: current state vector
       h: current vector of step sizes
@@ -635,7 +443,9 @@ def _do_step(
       field_model: instance of libgputrace.FieldModel
       stopped: boolean array of whether integration has stopped
     Returns
-      num_iterated: number of particles iterated
+    --------
+    num_iterated: int
+      Number of particles iterated
     """
     # Evaluate Stopping Conditions
     if config.stopping_conditions:
@@ -646,9 +456,8 @@ def _do_step(
     stopped |= cp.isnan(h)
 
     # Call Kernel to do the rest of the work
+    grid_size = int(math.ceil(stopped_cutoff / BLOCK_SIZE))
     arr_size = y.shape[0]
-    block_size = 1024
-    grid_size = int(math.ceil(stopped_cutoff / block_size))
     y_next = cp.zeros(y.shape)
     z_next = cp.zeros(y.shape)
     rtol_arr = cp.zeros(arr_size) + config.rtol
@@ -656,7 +465,7 @@ def _do_step(
     r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
     mask = cp.zeros(arr_size, dtype=bool)
 
-    do_step_kernel[grid_size, block_size](
+    do_step_kernel[grid_size, BLOCK_SIZE](
         k1,
         k2,
         k3,

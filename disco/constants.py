@@ -1,3 +1,11 @@
+
+
+# Block size or GPU computations
+BLOCK_SIZE = 256
+
+# Number of elements in the state vector
+NSTATE = 5
+
 class RK45Coeffs:
     """
     Coefficients of the RK45 Algorithm
