@@ -51,7 +51,8 @@ class TraceConfig:
     rtol: float = 1e-2
     integrate_backwards: bool = False
     iters_max: Optional[int] = None
-    
+    reorder_freq: int = 25
+
 
 class FieldModel:
     """Magnetic and electric field models used to propagate particles."""
@@ -95,7 +96,7 @@ class FieldModel:
         self.Ez = cp.array((sf * Ez).to(1).value)
         self.axes = axes
 
-    def multi_interp(self, t, y):
+    def multi_interp(self, t, y, stopped_cutoff):
         """Interpolate field values at given positions.
 
         Paramaters
@@ -115,7 +116,6 @@ class FieldModel:
 
         # Setup variables to send to GPU kernel
         arr_size = y.shape[0]
-
         nx = self.axes.x.size
         ny = self.axes.y.size
         nz = self.axes.z.size
@@ -168,7 +168,7 @@ class FieldModel:
 
         # Call GPU Kernel
         block_size = 256
-        grid_size = int(math.ceil(arr_size / block_size))
+        grid_size = int(math.ceil(stopped_cutoff / block_size))
 
         multi_interp_kernel[grid_size, block_size](
             nx,
@@ -183,7 +183,7 @@ class FieldModel:
             iz,
             it,
             t,
-            y,
+            y[:stopped_cutoff],
             b0,
             r_inner,
             t_axis,
@@ -296,7 +296,7 @@ class Axes:
         assert len(y.shape) == 1
         assert len(z.shape) == 1
         assert len(t.shape) == 1
-        
+
         Re = constants.R_earth
         self.t = cp.array(_redim_time(t))
         self.x = cp.array((x / Re).to(1).value)
@@ -370,9 +370,10 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
+    nstate = 5
     t = cp.zeros(npart) + _redim_time(config.t_initial)
 
-    y = cp.zeros((particle_state.x.size, 5))
+    y = cp.zeros((npart, nstate))
     y[:, 0] = particle_state.x
     y[:, 1] = particle_state.y
     y[:, 2] = particle_state.z
@@ -386,9 +387,11 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     t_final = _redim_time(config.t_final)
     all_complete = False
     stopped = cp.zeros(npart, dtype=bool)
+    total_reorder = cp.arange(npart, dtype=int)
+    stopped_cutoff = npart
+    iter_count = 0
 
     R = RK45Coeffs
-    iter_count = 0
 
     hist_y = []
     hist_t = []
@@ -404,32 +407,53 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         # Stop iterating if exceeding the maximum iterations
         if config.iters_max and iter_count >= config.iters_max:
             break
-        
-        # Cupy broadcasting workaround (implicit broading doesn't work)
-        h_ = cp.zeros((h.size, 5))
 
-        for i in range(5):
+        # Reorder batches based on stopped flag to group stopped particles
+        # on same warp (avoid blocking)
+        if config.reorder_freq is not None and (iter_count % config.reorder_freq == 0):
+            print("Reordering to reduce GPU load...")
+            cur_reorder = cp.argsort(stopped)
+            y = y[cur_reorder]
+            t = t[cur_reorder]
+            h = h[cur_reorder]
+            stopped = stopped[cur_reorder]
+            total_reorder = total_reorder[cur_reorder]
+            stopped_cutoff = int(cp.searchsorted(stopped, cp.ones(1))[0])
+            # print("Stopped cutoff:", stopped_cutoff)
+
+        # Cupy broadcasting workaround (implicit broading doesn't work)
+        h_ = cp.zeros((h.size, nstate))
+
+        for i in range(nstate):
             h_[:, i] = h
 
         # Call _rhs() function to implement multiple function evaluations of
         # right hand side.
-        k1, B = _rhs(t, y, field_model, config)
-        k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, config)
-        k3, _ = _rhs(t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, config)
+        k1, B = _rhs(t, y, field_model, config, stopped_cutoff)
+        k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, config, stopped_cutoff)
+        k3, _ = _rhs(
+            t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, config, stopped_cutoff
+        )
         k4, _ = _rhs(
-            t + h * R.a4, y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3), field_model, config
+            t + h * R.a4,
+            y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
+            field_model,
+            config,
+            stopped_cutoff,
         )
         k5, _ = _rhs(
             t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
             field_model,
             config,
+            stopped_cutoff,
         )
         k6, _ = _rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
             field_model,
             config,
+            stopped_cutoff,
         )
 
         k1 *= h_
@@ -441,20 +465,25 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 
         # Save incremented particles to history
         if config.output_freq is not None and (iter_count % config.output_freq == 0):
+            total_reorder_rev = np.argsort(total_reorder)
             gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
             W = gamma - 1
-            hist_t.append(t.get())
-            hist_y.append(y.get())
-            hist_B.append(B.get())
-            hist_W.append(W.get())
-            hist_h.append(h.get())
+            hist_t.append(t[total_reorder_rev].get())
+            hist_y.append(y[total_reorder_rev].get())
+            hist_B.append(B[total_reorder_rev].get())
+            hist_W.append(W[total_reorder_rev].get())
+            hist_h.append(h[total_reorder_rev].get())
 
+        # Do runge-kutta step, check to change stopping state, and change step size
+        # if step is performed
         num_iterated = _do_step(
-            k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config
+            k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config, stopped_cutoff
         )
+
         all_complete = cp.all(stopped)
         iter_count += 1
 
+        # Print message to console if verbose enabled
         if verbose > 0:
             r_mean = cp.sqrt(y[:, 0] ** 2 + y[:, 1] ** 2 + y[:, 2] ** 2).mean()
             h_step = _undim_time(float(h.mean())).to(units.ms).value
@@ -471,14 +500,17 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     if verbose > 0:
         print(f"Took {iter_count} iterations")
 
+    # We need to reverse of the accumulated reordering
+    total_reorder_rev = np.argsort(total_reorder)
+
     # Always save last step of each, even if not recording full history
     gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
     W = gamma - 1
-    hist_t.append(t.get())
-    hist_y.append(y.get())
-    hist_B.append(B.get())
-    hist_W.append(W.get())
-    hist_h.append(h.get())
+    hist_t.append(t[total_reorder_rev].get())
+    hist_y.append(y[total_reorder_rev].get())
+    hist_B.append(B[total_reorder_rev].get())
+    hist_W.append(W[total_reorder_rev].get())
+    hist_h.append(h[total_reorder_rev].get())
 
     # Prepare history object and return instance of ParticleHistory
     hist_t = np.array(hist_t)
@@ -503,7 +535,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     )
 
 
-def _rhs(t, y, field_model, config):
+def _rhs(t, y, field_model, config, stopped_cutoff):
     """RIght hand side of the guiding center equation differential equation.
 
     Args
@@ -537,7 +569,7 @@ def _rhs(t, y, field_model, config):
         dBdx,
         dBdy,
         dBdz,
-    ) = field_model.multi_interp(t, y)
+    ) = field_model.multi_interp(t, y, stopped_cutoff)
 
     # need to account for dimensionalization of magnitude
     if field_model.negative_charge:
@@ -549,13 +581,13 @@ def _rhs(t, y, field_model, config):
     # Launch Kernel to handle rest of RHS
     arr_size = y.shape[0]
     block_size = 256
-    grid_size = int(math.ceil(arr_size / block_size))
+    grid_size = int(math.ceil(stopped_cutoff / block_size))
 
     r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
     dydt = cp.zeros((arr_size, 5))
 
     rhs_kernel[grid_size, block_size](
-        y,
+        y[:stopped_cutoff],
         t,
         Bx,
         By,
@@ -588,7 +620,9 @@ def _rhs(t, y, field_model, config):
     return dydt, B
 
 
-def _do_step(k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config):
+def _do_step(
+    k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config, stopped_cutoff
+):
     """Do a Runge-Kutta Step.
 
     Args
@@ -611,9 +645,9 @@ def _do_step(k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, con
     stopped |= cp.isnan(h)
 
     # Call Kernel to do the rest of the work
-    arr_size = k1.shape[0]
+    arr_size = y.shape[0]
     block_size = 1024
-    grid_size = int(math.ceil(arr_size / block_size))
+    grid_size = int(math.ceil(stopped_cutoff / block_size))
     y_next = cp.zeros(y.shape)
     z_next = cp.zeros(y.shape)
     rtol_arr = cp.zeros(arr_size) + config.rtol
@@ -628,7 +662,7 @@ def _do_step(k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, con
         k4,
         k5,
         k6,
-        y,
+        y[:stopped_cutoff],
         y_next,
         z_next,
         h,
