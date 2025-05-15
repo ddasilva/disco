@@ -51,7 +51,7 @@ class TraceConfig:
     rtol: float = 1e-2
     integrate_backwards: bool = False
     iters_max: Optional[int] = None
-    reorder_freq: int = 25
+    reorder_freq: Optional[int] = 25
 
 
 class FieldModel:
@@ -419,7 +419,6 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             stopped = stopped[cur_reorder]
             total_reorder = total_reorder[cur_reorder]
             stopped_cutoff = int(cp.searchsorted(stopped, cp.ones(1))[0])
-            # print("Stopped cutoff:", stopped_cutoff)
 
         # Cupy broadcasting workaround (implicit broading doesn't work)
         h_ = cp.zeros((h.size, nstate))
