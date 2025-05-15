@@ -184,6 +184,40 @@ def test_oob_rinner():
     assert np.all(r > field_model.axes.r_inner)
 
 
+def test_reorder_does_not_affect_history():
+    """Starts particles on dipole between x=-4 and x=-8 through
+    part of a bounce with reordering every step. Checks at the
+    end that they are still sorted by x coordinate (they should
+    stay on the same field line).
+    """
+    config = TraceConfig(
+        t_final=250 * units.ms,
+        h_initial=5 * units.ms,
+        rtol=1e-2,
+        output_freq=1,
+        reorder_freq=1,
+    )
+    field_model = _setup_field_model(backwards_time=True)
+
+    # Setup custom particle state
+    pos_x = -np.arange(4, 8, 0.1) * constants.R_earth
+    npart = pos_x.shape
+    pos_y = np.zeros(npart) * constants.R_earth
+    pos_z = np.zeros(npart) * constants.R_earth
+    vtotal = 0.1 * constants.c
+    gamma = 1 / np.sqrt(1 - (vtotal / constants.c) ** 2)
+    m = constants.m_e
+    ppar = np.ones(npart) * gamma * m * vtotal
+    magnetic_moment = 0 * units.MeV / units.nT
+    charge = -elementary_charge * units.C
+    particle_state = ParticleState(pos_x, pos_y, pos_z, ppar, magnetic_moment, m, charge)
+
+    # Trace trajectory
+    hist = trace_trajectory(config, particle_state, field_model, verbose=0)
+
+    assert np.all(np.diff(hist.x) < 0)
+
+
 def test_bouncing_integrate_backwards():
     """Tests bouncing a particle in the outer radiation belt
     with particle integrating backwards in time

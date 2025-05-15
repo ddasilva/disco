@@ -503,6 +503,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     # We need to reverse of the accumulated reordering
     total_reorder_rev = np.argsort(total_reorder)
 
+    assert cp.all(total_reorder[total_reorder_rev] == cp.arange(npart, dtype=int))
+
     # Always save last step of each, even if not recording full history
     gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
     W = gamma - 1
