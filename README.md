@@ -23,3 +23,11 @@ To run the test, simply issue the following command from the top-level directory
 ```
 $ pytest -v
 ```
+
+## Team
+Funded by LWS Strategic Capabilities Grant
+
+* Daniel da Silva (DISCO Lead), [daniel.e.dasilva@nasa.gov](mailto:daniel.e.dasilva@nasa.gov)
+* John Dorelli (MARBLE PI)
+
+
