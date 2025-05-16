@@ -7,7 +7,7 @@ from astropy.units import Quantity
 import cupy as cp
 import numpy as np
 
-from disco._field_model import FieldModel, _DimensionalizedFieldModel
+from disco._field_model import FieldModel
 from disco._particle_history import ParticleHistory
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
 from disco._kernels import do_step_kernel, rhs_kernel
@@ -147,7 +147,7 @@ class _RectilinearNeighbors:
     field_l: Any
 
 
-def trace_trajectory(config, particle_state, raw_field_model, verbose=1):
+def trace_trajectory(config, particle_state, field_model, verbose=1):
     """Calculate a particle trajectory.
 
     Parameters
@@ -169,9 +169,7 @@ def trace_trajectory(config, particle_state, raw_field_model, verbose=1):
     """
     # Dimensionalize field model; this is done here because it requires
     # info about the initial particle state
-    field_model = _DimensionalizedFieldModel(
-        raw_field_model, particle_state.mass, particle_state.charge
-    )
+    field_model = field_model.dimensionalize(particle_state.mass, particle_state.charge)
     
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes

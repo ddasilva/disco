@@ -13,8 +13,6 @@ from astropy import units, constants
 class FieldModel:
     """Magnetic and electric field models used to propagate particles."""
 
-
-
     def __init__(self, Bx, By, Bz, Ex, Ey, Ez, axes, B0=DEFAULT_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
@@ -55,9 +53,27 @@ class FieldModel:
         self.Ez = Ez
         self.B0 = B0
         self.axes = axes
-        
+        self.dimensionalized = False
 
-class _DimensionalizedFieldModel:
+    def dimensionalize(self, mass, charge):
+        """Convert to a `DimensionalizedFieldModel` instance.
+        
+        Parameters
+        ----------
+        mass : Quantity
+          Scalar mass, used for dimensionalization
+        charge : Quantity
+           Scalar charge, used for dimensionalization
+        
+        Return
+        ------
+        instance of `DimensionalizedFieldModel`
+        """
+         
+        return DimensionalizedFieldModel(self, mass, charge)
+
+    
+class DimensionalizedFieldModel:
     """Dimensionalized magnetic and electric field models 
     used to propagate particles
     ."""
