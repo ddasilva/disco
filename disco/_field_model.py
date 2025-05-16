@@ -5,7 +5,7 @@ import math
 import cupy as cp
 
 from disco.kernels import multi_interp_kernel
-from disco.constants import BLOCK_SIZE
+from disco.constants import BLOCK_SIZE, DEFAULT_B0
 
 from astropy import units, constants
 
@@ -13,9 +13,9 @@ from astropy import units, constants
 class FieldModel:
     """Magnetic and electric field models used to propagate particles."""
 
-    DEFAULT_RAW_B0 = 31e3 * units.nT
 
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes, B0=DEFAULT_RAW_B0):
+
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, axes, B0=DEFAULT_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         mass is not part of field model, but is used to redimensionalize.
@@ -35,6 +35,8 @@ class FieldModel:
           Electric Field Y component
         Ez: array of shape (nx, ny, nz, nt), with units
           Electric Field Z component
+        axes: Axes
+          Grid information
         """
         # Check that units are valid to catch errors early
         Bx.to(units.nT)

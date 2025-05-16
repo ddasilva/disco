@@ -1,4 +1,9 @@
+"""Constants for the DISCO project"""
 
+from astropy import units
+
+# Default strength of internal dipole model
+DEFAULT_B0 = 31e3 * units.nT
 
 # Block size or GPU computations
 BLOCK_SIZE = 256

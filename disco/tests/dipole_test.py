@@ -32,14 +32,7 @@ def _setup_field_model(charge=-1, backwards_time=False):
     Ey = np.zeros(Bx.shape) * units.mV / units.m
     Ez = np.zeros(Bx.shape) * units.mV / units.m
 
-    if charge < 0:
-        mass = constants.m_e
-    else:
-        mass = constants.m_p
-
-    charge = charge * elementary_charge * units.coulomb
-
-    field_model = FieldModel(Bx, By, Bz, Ex, Ey, Ez, mass, charge, axes)
+    field_model = FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes)
 
     return field_model
 
