@@ -8,12 +8,9 @@ import cupy as cp
 import numpy as np
 
 from disco._field_model import FieldModel, _DimensionalizedFieldModel
+from disco._particle_history import ParticleHistory
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
-from disco.kernels import (
-    do_step_kernel,
-    multi_interp_kernel,
-    rhs_kernel,
-)
+from disco._kernels import do_step_kernel, rhs_kernel
 
 from astropy import constants, units
 
@@ -138,20 +135,6 @@ class Axes:
             field_k=field_k,
             field_l=field_l,
         )
-
-
-@dataclass
-class ParticleHistory:
-    """History of positions, parallel momentum, and useful values.."""
-
-    t: Any
-    x: Any
-    y: Any
-    z: Any
-    ppar: Any
-    B: Any  # local field strength
-    W: Any  # energy
-    h: Any  # step size
 
 
 @dataclass
