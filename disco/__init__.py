@@ -298,7 +298,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             h_step = _undim_time(float(h.mean())).to(units.ms).value
 
             t_progress = min((t.min() - t_initial) / (t_final - t_initial), 1)
-        
+
             print(
                 f"Time Complete: {100 * t_progress:.3f}% "
                 f"Stopped: {100 * stopped.sum() / stopped.size:.3f}% "
