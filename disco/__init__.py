@@ -174,7 +174,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
-    t = cp.zeros(npart) + _redim_time(config.t_initial)
+    t_initial = _redim_time(config.t_initial)
+    t = cp.zeros(npart) + t_initial
 
     y = cp.zeros((npart, NSTATE))
     y[:, 0] = particle_state.x
@@ -296,8 +297,10 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             r_mean = cp.sqrt(y[:, 0] ** 2 + y[:, 1] ** 2 + y[:, 2] ** 2).mean()
             h_step = _undim_time(float(h.mean())).to(units.ms).value
 
+            t_progress = min((t.min() - t_initial) / (t_final - t_initial), 1)
+        
             print(
-                f"Time Complete: {100 * min(t.min() / t_final, 1):.3f}% "
+                f"Time Complete: {100 * t_progress:.3f}% "
                 f"Stopped: {100 * stopped.sum() / stopped.size:.3f}% "
                 f"(iter {iter_count}, {num_iterated} iterated, h mean "
                 f"{h_step:.2f} ms, r mean {r_mean:.2f})"
