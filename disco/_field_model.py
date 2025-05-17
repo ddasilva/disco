@@ -85,6 +85,10 @@ class DimensionalizedFieldModel:
         mass is not part of field model, but is used to redimensionalize.
         Input argument should have astropy units attached.
 
+        Warning
+        --------
+        This class is not threadsafe. 
+
         Parameters
         ----------
         field_model: instance of FieldModel
@@ -107,9 +111,69 @@ class DimensionalizedFieldModel:
         self.Ey = cp.array((sf * field_model.Ey).to(1).value)
         self.Ez = cp.array((sf * field_model.Ez).to(1).value)
         self.axes = field_model.axes
+
+        self._memory_initialized = False
+        self._memory_arr_size = None
+        
+    def _memory_initialize(self, arr_size):
+        """
+        Initializes variables reused in each multi_interp() call. They
+        are defined once as an optimizatin. See warnings in
+        the class header and multi_interp()
+        """
+        # Only needs to be done once unless the arr_size changes
+        if self._memory_initialized and self._memory_arr_size == arr_size:
+            return
+
+        # Initialize variables
+        nx = self.axes.x.size
+        ny = self.axes.y.size
+        nz = self.axes.z.size
+        nt = self.axes.t.size
+        nttl = nx * ny * nz * nt
+
+        self._B0_arr = cp.zeros(arr_size) + self.B0
+        self._r_inner = cp.zeros(arr_size) + self.axes.r_inner
+        self._Bxvec = self.Bx.reshape(nttl, order="F")
+        self._Byvec = self.By.reshape(nttl, order="F")
+        self._Bzvec = self.Bz.reshape(nttl, order="F")
+        self._Exvec = self.Ex.reshape(nttl, order="F")
+        self._Eyvec = self.Ey.reshape(nttl, order="F")
+        self._Ezvec = self.Ez.reshape(nttl, order="F")
+
+        self._Bx_out = cp.zeros(arr_size)
+        self._By_out = cp.zeros(arr_size)
+        self._Bz_out = cp.zeros(arr_size)
+        self._Ex_out = cp.zeros(arr_size)
+        self._Ey_out = cp.zeros(arr_size)
+        self._Ez_out = cp.zeros(arr_size)
+        self._dBxdx_out = cp.zeros(arr_size)
+        self._dBxdy_out = cp.zeros(arr_size)
+        self._dBxdz_out = cp.zeros(arr_size)
+        self._dBydx_out = cp.zeros(arr_size)
+        self._dBydy_out = cp.zeros(arr_size)
+        self._dBydz_out = cp.zeros(arr_size)
+        self._dBzdx_out = cp.zeros(arr_size)
+        self._dBzdy_out = cp.zeros(arr_size)
+        self._dBzdz_out = cp.zeros(arr_size)
+        self._B_out = cp.zeros(arr_size)
+        self._dBdx_out = cp.zeros(arr_size)
+        self._dBdy_out = cp.zeros(arr_size)
+        self._dBdz_out = cp.zeros(arr_size)
+
+        # Save state variables
+        self._memory_initialized = True
+        self._memory_arr_size = arr_size
         
     def multi_interp(self, t, y, stopped_cutoff):
         """Interpolate field values at given positions.
+
+        Warning
+        -------
+        The CuPy arrays in the output arrays are atttached
+        to this instance. Subsequent calls will overwrite
+        them. If you want to avoid this, call .copy() on
+        each array.
 
         Paramaters
         ----------
@@ -127,10 +191,13 @@ class DimensionalizedFieldModel:
         dBzdx, dBzdy, dBzdz, B, dBdx, dBdy, dBdz
         """
         # Use Axes object to get neighbors of cell
-        neighbors = self.axes.get_neighbors(t, y[:, 0], y[:, 1], y[:, 2])
+        neighbors = self.axes.get_neighbors(t, y)
 
         # Setup variables to send to GPU kernel
         arr_size = y.shape[0]
+
+        self._memory_initialize(arr_size)
+        
         nx = self.axes.x.size
         ny = self.axes.y.size
         nz = self.axes.z.size
@@ -138,9 +205,6 @@ class DimensionalizedFieldModel:
         nxy = nx * ny
         nxyz = nxy * nz
         nttl = nxyz * nt
-
-        B0 = cp.zeros(arr_size) + self.B0
-        r_inner = cp.zeros(arr_size) + self.axes.r_inner
 
         x_axis = self.axes.x
         y_axis = self.axes.y
@@ -154,36 +218,9 @@ class DimensionalizedFieldModel:
             neighbors.field_l,
         )
 
-        Bxvec = self.Bx.reshape(nttl, order="F")
-        Byvec = self.By.reshape(nttl, order="F")
-        Bzvec = self.Bz.reshape(nttl, order="F")
-        Exvec = self.Ex.reshape(nttl, order="F")
-        Eyvec = self.Ey.reshape(nttl, order="F")
-        Ezvec = self.Ez.reshape(nttl, order="F")
-
-        Bx = cp.zeros(arr_size)
-        By = cp.zeros(arr_size)
-        Bz = cp.zeros(arr_size)
-        Ex = cp.zeros(arr_size)
-        Ey = cp.zeros(arr_size)
-        Ez = cp.zeros(arr_size)
-        dBxdx = cp.zeros(arr_size)
-        dBxdy = cp.zeros(arr_size)
-        dBxdz = cp.zeros(arr_size)
-        dBydx = cp.zeros(arr_size)
-        dBydy = cp.zeros(arr_size)
-        dBydz = cp.zeros(arr_size)
-        dBzdx = cp.zeros(arr_size)
-        dBzdy = cp.zeros(arr_size)
-        dBzdz = cp.zeros(arr_size)
-        B = cp.zeros(arr_size)
-        dBdx = cp.zeros(arr_size)
-        dBdy = cp.zeros(arr_size)
-        dBdz = cp.zeros(arr_size)
-
         # Call GPU Kernel
         grid_size = int(math.ceil(stopped_cutoff / BLOCK_SIZE))
-
+        
         multi_interp_kernel[grid_size, BLOCK_SIZE](
             nx,
             ny,
@@ -198,67 +235,67 @@ class DimensionalizedFieldModel:
             it,
             t,
             y[:stopped_cutoff],
-            B0,
-            r_inner,
+            self._B0_arr,
+            self._r_inner,
             t_axis,
             x_axis,
             y_axis,
             z_axis,
-            Bxvec,
-            Byvec,
-            Bzvec,
-            Exvec,
-            Eyvec,
-            Ezvec,
-            Bx,
-            By,
-            Bz,
-            Ex,
-            Ey,
-            Ez,
-            dBxdx,
-            dBxdy,
-            dBxdz,
-            dBydx,
-            dBydy,
-            dBydz,
-            dBzdx,
-            dBzdy,
-            dBzdz,
-            B,
-            dBdx,
-            dBdy,
-            dBdz,
+            self._Bxvec,
+            self._Byvec,
+            self._Bzvec,
+            self._Exvec,
+            self._Eyvec,
+            self._Ezvec,
+            self._Bx_out,
+            self._By_out,
+            self._Bz_out,
+            self._Ex_out,
+            self._Ey_out,
+            self._Ez_out,
+            self._dBxdx_out,
+            self._dBxdy_out,
+            self._dBxdz_out,
+            self._dBydx_out,
+            self._dBydy_out,
+            self._dBydz_out,
+            self._dBzdx_out,
+            self._dBzdy_out,
+            self._dBzdz_out,
+            self._B_out,
+            self._dBdx_out,
+            self._dBdy_out,
+            self._dBdz_out,
         )
         
         # need to account for dimensionalization of magnitude
         if self.negative_charge:
-            B *= -1
-            dBdx *= -1
-            dBdy *= -1
-            dBdz *= -1
+            self._B_out *= -1
+            self._dBdx_out *= -1
+            self._dBdy_out *= -1
+            self._dBdz_out *= -1
         
         # Return values as tuple
         return _MultiInterpResult(
-            Bx=Bx,
-            By=By,
-            Bz=Bz,
-            Ex=Ex,
-            Ey=Ey,
-            Ez=Ez,
-            dBxdx=dBxdx,
-            dBxdy=dBxdy,
-            dBxdz=dBxdz,
-            dBydx=dBydx,
-            dBydy=dBydy,
-            dBydz=dBydz,
-            dBzdx=dBzdx,
-            dBzdy=dBzdy,
-            dBzdz=dBzdz,
-            B=B,
-            dBdx=dBdx,
-            dBdy=dBdy,
-            dBdz=dBdz,
+            Bx=self._Bx_out,
+            By=self._By_out,
+            Bz=self._Bz_out,
+            Ex=self._Ex_out,
+            Ey=self._Ey_out,
+            Ez=self._Ez_out,
+            dBxdx=self._dBxdx_out,
+            dBxdy=self._dBxdy_out,
+            dBxdz=self._dBxdz_out,
+            dBydx=self._dBydx_out,
+            dBydy=self._dBydy_out,
+            dBydz=self._dBydz_out,
+            dBzdx=self._dBzdx_out,
+            dBzdy=self._dBzdy_out,
+            dBzdz=self._dBzdz_out,
+            B=self._B_out,
+            dBdx=self._dBdx_out,
+            dBdy=self._dBdy_out,
+            dBdz=self._dBdz_out,
         )
 
 

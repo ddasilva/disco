@@ -118,15 +118,15 @@ class Axes:
         self.z = cp.array((z / Re).to(1).value)
         self.r_inner = (r_inner / Re).to(1).value
 
-    def get_neighbors(self, t, pos_x, pos_y, pos_z):
+    def get_neighbors(self, t, y):
         """Get instance of RectilinearNeighbors specifying surrounding
         cell through indeces of upper corner
 
         Returns instance of _RectilinearNeighbors
         """
-        field_i = cp.searchsorted(self.x, pos_x)
-        field_j = cp.searchsorted(self.y, pos_y)
-        field_k = cp.searchsorted(self.z, pos_z)
+        field_i = cp.searchsorted(self.x, y[:, 0])
+        field_j = cp.searchsorted(self.y, y[:, 1])
+        field_k = cp.searchsorted(self.z, y[:, 2])
         field_l = cp.searchsorted(self.t, t, side="right")
 
         return _RectilinearNeighbors(
@@ -232,6 +232,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         # Call _rhs() function to implement multiple function evaluations of
         # right hand side.
         k1, B = _rhs(t, y, field_model, config, stopped_cutoff)
+        B = B.copy()
         k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, config, stopped_cutoff)
         k3, _ = _rhs(
             t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, config, stopped_cutoff
