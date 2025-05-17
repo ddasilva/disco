@@ -41,10 +41,10 @@ class FieldModel:
         By.to(units.nT)
         Bz.to(units.nT)
         # Check that units are valid to catch errors early
-        Ex.to(units.mV/units.m)
-        Ey.to(units.mV/units.m)
-        Ez.to(units.mV/units.m)
-        
+        Ex.to(units.mV / units.m)
+        Ey.to(units.mV / units.m)
+        Ez.to(units.mV / units.m)
+
         self.Bx = Bx
         self.By = By
         self.Bz = Bx
@@ -57,26 +57,27 @@ class FieldModel:
 
     def dimensionalize(self, mass, charge):
         """Convert to a `DimensionalizedFieldModel` instance.
-        
+
         Parameters
         ----------
         mass : Quantity
           Scalar mass, used for dimensionalization
         charge : Quantity
            Scalar charge, used for dimensionalization
-        
+
         Return
         ------
         instance of `DimensionalizedFieldModel`
         """
-         
+
         return DimensionalizedFieldModel(self, mass, charge)
 
-    
+
 class DimensionalizedFieldModel:
-    """Dimensionalized magnetic and electric field models 
+    """Dimensionalized magnetic and electric field models
     used to propagate particles
     ."""
+
     DEFAULT_RAW_B0 = 31e3 * units.nT
 
     def __init__(self, field_model, mass, charge):
@@ -87,7 +88,7 @@ class DimensionalizedFieldModel:
 
         Warning
         --------
-        This class is not threadsafe. 
+        This class is not threadsafe.
 
         Parameters
         ----------
@@ -114,7 +115,7 @@ class DimensionalizedFieldModel:
 
         self._memory_initialized = False
         self._memory_arr_size = None
-        
+
     def _memory_initialize(self, arr_size):
         """
         Initializes variables reused in each multi_interp() call. They
@@ -164,7 +165,7 @@ class DimensionalizedFieldModel:
         # Save state variables
         self._memory_initialized = True
         self._memory_arr_size = arr_size
-        
+
     def multi_interp(self, t, y, stopped_cutoff):
         """Interpolate field values at given positions.
 
@@ -197,7 +198,7 @@ class DimensionalizedFieldModel:
         arr_size = y.shape[0]
 
         self._memory_initialize(arr_size)
-        
+
         nx = self.axes.x.size
         ny = self.axes.y.size
         nz = self.axes.z.size
@@ -220,7 +221,7 @@ class DimensionalizedFieldModel:
 
         # Call GPU Kernel
         grid_size = int(math.ceil(stopped_cutoff / BLOCK_SIZE))
-        
+
         multi_interp_kernel[grid_size, BLOCK_SIZE](
             nx,
             ny,
@@ -267,14 +268,14 @@ class DimensionalizedFieldModel:
             self._dBdy_out,
             self._dBdz_out,
         )
-        
+
         # need to account for dimensionalization of magnitude
         if self.negative_charge:
             self._B_out *= -1
             self._dBdx_out *= -1
             self._dBdy_out *= -1
             self._dBdz_out *= -1
-        
+
         # Return values as tuple
         return _MultiInterpResult(
             Bx=self._Bx_out,
@@ -304,6 +305,7 @@ class _MultiInterpResult:
     """Data container for return value of
     _DimensionalizedFieldModel.multi_interp()
     """
+
     Bx: cp.array
     By: cp.array
     Bz: cp.array
@@ -323,4 +325,3 @@ class _MultiInterpResult:
     dBdx: cp.array
     dBdy: cp.array
     dBdz: cp.array
-    

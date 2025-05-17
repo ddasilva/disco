@@ -33,8 +33,7 @@ def rhs_kernel(
     ny,
     nz,
     nt,
-    r_inner,        
-
+    r_inner,
 ):
     """[CUPY KERNEL] implements RHS of ODE.
 

@@ -70,7 +70,7 @@ class ParticleState:
         and stored on the GPU.
 
         All inputs are arrays except for mass and charge, which are
-        single values. 
+        single values.
 
         Input argument should have astropy units attached
         Returns ParticleState instance
@@ -170,7 +170,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     # Dimensionalize field model; this is done here because it requires
     # info about the initial particle state
     field_model = field_model.dimensionalize(particle_state.mass, particle_state.charge)
-    
+
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
@@ -202,6 +202,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_B = []
     hist_h = []
 
+    # Iteration
+    # ---------------------------
     while True:
         # Stop iterating when all_complete flag is set
         if all_complete:
@@ -267,10 +269,13 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         k6 *= h_
 
         # Save incremented particles to history
-        if config.output_freq is not None and (iter_count % config.output_freq == 0):
+        save_history = iter_count == 0 or (
+            config.output_freq and (iter_count % config.output_freq == 0)
+        )
+
+        if save_history:
             total_reorder_rev = np.argsort(total_reorder)
-            gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
-            W = gamma - 1
+            gamma, W = _calc_gamma_W(B, y)
             hist_t.append(t[total_reorder_rev].get())
             hist_y.append(y[total_reorder_rev].get())
             hist_B.append(B[total_reorder_rev].get())
@@ -309,8 +314,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     assert cp.all(total_reorder[total_reorder_rev] == cp.arange(npart, dtype=int))
 
     # Always save last step of each, even if not recording full history
-    gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
-    W = gamma - 1
+    gamma, W = _calc_gamma_W(B, y)
     hist_t.append(t[total_reorder_rev].get())
     hist_y.append(y[total_reorder_rev].get())
     hist_B.append(B[total_reorder_rev].get())
@@ -349,18 +353,18 @@ def _rhs(t, y, field_model, config, stopped_cutoff):
       Dimensionalized time variable
     y: cupy array (nparticles,)
       ODE state variable
-    field_model: _DimensionalizedFieldModel 
+    field_model: _DimensionalizedFieldModel
       Used to E and B fields and particles
     axes: Axes
       Grid information, used for interpolation
     config: TraceConfig
       Tracing configuration
-     
+
     Returns
     -------
     dydt: cupy array (nparticles, NSTATE)
-      First three columns are position, fourth is parallel momentum, 
-      fifth is relativistic magnetic moment. This variable is 
+      First three columns are position, fourth is parallel momentum,
+      fifth is relativistic magnetic moment. This variable is
       dimensionalized. Filled up to `stopped_cutoff`.
     B: cupy array (nparticles,)
       Value of B at the particle positions, filled up to
@@ -404,7 +408,7 @@ def _rhs(t, y, field_model, config, stopped_cutoff):
         field_model.axes.y.size,
         field_model.axes.z.size,
         field_model.axes.t.size,
-        r_inner,        
+        r_inner,
     )
 
     return dydt, interp_result.B
@@ -502,3 +506,26 @@ def _undim_time(val):
     """
     sf = constants.R_earth / constants.c
     return val * sf
+
+
+def _calc_gamma_W(B, y):
+    """Calculate  gamma (relativistic factor) and W (relativistic energy) for
+    saving in history.
+
+    Parameters
+    ----------
+    B : cupy array
+       Magnetic Field Strength, dimensionalized
+    y : cupy array
+       State vector, dimensionalied
+
+    Returns
+    -------
+    gamma: cupy array
+       Relativstic factor
+    W : cupy array
+       Relativistic Energy
+    """
+    gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
+    W = gamma - 1
+    return gamma, W

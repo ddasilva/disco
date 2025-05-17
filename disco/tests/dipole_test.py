@@ -78,14 +78,14 @@ def test_bouncing_basic():
 
     threshold = 1e-2
 
-    assert np.all(np.abs(hist.t[0, :] - 46.96625915) < threshold)
-    assert np.all(np.abs(hist.x[0, :] - 6.34677013) < threshold)
-    assert np.all(np.abs(hist.y[0, :] - 0.36272624) < threshold)
-    assert np.all(np.abs(hist.z[0, :] - 1.01137163) < threshold)
-    assert np.all(np.abs(hist.ppar[0, :] - 0.37732395) < threshold)
-    assert np.all(np.abs(hist.B[0, :] - -9.58897718) < threshold)
-    assert np.all(np.abs(hist.W[0, :] - 0.17225467) < threshold)
-    assert np.all(np.abs(hist.h[0, :] - 0.34064285) < threshold)
+    assert np.all(np.abs(hist.t[-1, :] - 46.96625915) < threshold)
+    assert np.all(np.abs(hist.x[-1, :] - 6.34677013) < threshold)
+    assert np.all(np.abs(hist.y[-1, :] - 0.36272624) < threshold)
+    assert np.all(np.abs(hist.z[-1, :] - 1.01137163) < threshold)
+    assert np.all(np.abs(hist.ppar[-1, :] - 0.37732395) < threshold)
+    assert np.all(np.abs(hist.B[-1, :] - -9.58897718) < threshold)
+    assert np.all(np.abs(hist.W[-1, :] - 0.17225467) < threshold)
+    assert np.all(np.abs(hist.h[-1, :] - 0.34064285) < threshold)
 
 
 def test_bouncing_history():
