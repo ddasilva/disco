@@ -174,31 +174,28 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 
         # Call _rhs() function to implement multiple function evaluations of
         # right hand side.
-        k1, B = _rhs(t, y, field_model, config, stopped_cutoff)
+        k1, B = _rhs(t, y, field_model, stopped_cutoff)
         B = B.copy()
-        k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, config, stopped_cutoff)
+        k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, stopped_cutoff)
         k3, _ = _rhs(
-            t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, config, stopped_cutoff
+            t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, stopped_cutoff
         )
         k4, _ = _rhs(
             t + h * R.a4,
             y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
             field_model,
-            config,
             stopped_cutoff,
         )
         k5, _ = _rhs(
             t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
             field_model,
-            config,
             stopped_cutoff,
         )
         k6, _ = _rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
             field_model,
-            config,
             stopped_cutoff,
         )
 
@@ -289,7 +286,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     )
 
 
-def _rhs(t, y, field_model, config, stopped_cutoff):
+def _rhs(t, y, field_model, stopped_cutoff):
     """RIght hand side of the guiding center equation differential equation.
 
     Parameters
@@ -441,9 +438,9 @@ def _calc_gamma_W(B, y):
     Returns
     -------
     gamma: cupy array
-       Relativstic factor
+       Relativstic factor, dimensionalized
     W : cupy array
-       Relativistic Energy
+       Relativistic Energy, dimensionalized
     """
     gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
     W = gamma - 1
