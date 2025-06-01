@@ -86,24 +86,22 @@ class GenericHdf5FieldModel(FieldModel):
         """
         # The the ndims of the 1D axis arrays
         expected_ndims = 1
-        arrays = [xaxis, yaxis, zaxis, taxis] 
+        arrays = [xaxis, yaxis, zaxis, taxis]
         array_names = ["xaxis", "yaxis", "zaxis", "taxis"]
 
         for arr, name in zip(arrays, array_names):
             if len(arr.shape) != expected_ndims:
                 raise InvalidReaderShapeError(
                     f"{name} has shape {arr.shape}, expected {expected_ndims} dimsensions"
-                ) 
+                )
 
         # Check the shape of the 4D field arrays
         expected_shape = (xaxis.shape[0], yaxis.shape[0], zaxis.shape[0], taxis.shape[0])
         arrays = [Bx, By, Bz, Ex, Ey, Ez]
         array_names = ["Bx", "By", "Bz", "Ex", "Ey", "Ez"]
-        
+
         for arr, name in zip(arrays, array_names):
             if arr.shape != expected_shape:
                 raise InvalidReaderShapeError(
-                     f"{name} has shape {arr.shape}, expected {expected_shape}"
-                      " (nx, ny, nz, nt)"
+                    f"{name} has shape {arr.shape}, expected {expected_shape}" " (nx, ny, nz, nt)"
                 )
-            

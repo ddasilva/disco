@@ -8,7 +8,13 @@ import cupy as cp
 import numpy as np
 
 from disco._axes import Axes
-from disco._dimensionalization import dim_time, undim_time, dim_space, dim_momentum, dim_magnetic_moment
+from disco._dimensionalization import (
+    dim_time,
+    undim_time,
+    dim_space,
+    dim_momentum,
+    dim_magnetic_moment,
+)
 from disco._field_model import FieldModel
 from disco._particle_history import ParticleHistory
 from disco._kernels import do_step_kernel, rhs_kernel
@@ -177,9 +183,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         k1, B = _rhs(t, y, field_model, stopped_cutoff)
         B = B.copy()
         k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, stopped_cutoff)
-        k3, _ = _rhs(
-            t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, stopped_cutoff
-        )
+        k3, _ = _rhs(t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, stopped_cutoff)
         k4, _ = _rhs(
             t + h * R.a4,
             y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),

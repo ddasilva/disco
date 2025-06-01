@@ -16,7 +16,7 @@ def create_hdf5_with_shape_error(axis_error=False, field_error=False):
 
     hdf_path = tempfile.NamedTemporaryFile(suffix=".h5", delete=False)
     hdf = h5py.File(hdf_path.name, "w")
-    
+
     # Correct shapes
     hdf["Bx"] = np.ones((nx, ny, nz, nt))
     hdf["By"] = np.ones((nx, ny, nz, nt)) * 2
@@ -32,12 +32,12 @@ def create_hdf5_with_shape_error(axis_error=False, field_error=False):
 
     if axis_error:
         # Make xaxis 2D instead of 1D
-        del hdf['xaxis']
+        del hdf["xaxis"]
         hdf["xaxis"] = np.ones((nx, 2))
 
     if field_error:
         # Make Bx shape wrong
-        del hdf['Bx']
+        del hdf["Bx"]
         hdf["Bx"] = np.ones((nx, ny, nz, 1))
 
     hdf.close()
@@ -102,14 +102,14 @@ def test_generic_hdf5_field_model_units():
     assert hasattr(model.Ex, "unit") and model.Ex.unit.is_equivalent(units.mV / units.m)
     assert hasattr(model.axes.x, "unit") and model.axes.x.unit.is_equivalent(units.R_earth)
     assert hasattr(model.axes.t, "unit") and model.axes.t.unit.is_equivalent(units.s)
-    
+
     hdf_path.close()
 
 
 def test_invalid_axis_shape_raises():
     """Test that InvalidReaderShapeError is raised for bad axis shape."""
     hdf_path = create_hdf5_with_shape_error(axis_error=True)
-    
+
     with pytest.raises(InvalidReaderShapeError):
         GenericHdf5FieldModel(hdf_path.name)
 
@@ -119,8 +119,8 @@ def test_invalid_axis_shape_raises():
 def test_invalid_field_shape_raises():
     """Test that InvalidReaderShapeError is raised for bad field shape."""
     hdf_path = create_hdf5_with_shape_error(field_error=True)
-    
+
     with pytest.raises(InvalidReaderShapeError):
         GenericHdf5FieldModel(hdf_path.name)
-    
+
     hdf_path.close()

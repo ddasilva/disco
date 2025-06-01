@@ -161,7 +161,7 @@ def dim_magnetic_moment(val, charge):
     Returns
       value in no units
     """
-    sf =  1/ (charge * constants.R_earth)
+    sf = 1 / (charge * constants.R_earth)
     M_units = constants.R_earth / units.s
 
     return (val * sf).to(M_units).value
