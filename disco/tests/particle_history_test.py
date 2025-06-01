@@ -34,6 +34,7 @@ def test_particle_history_units():
     assert hist.B.unit.is_equivalent(units.nT)
     assert hist.W.unit.is_equivalent(units.keV)
     assert hist.h.unit.is_equivalent(units.s)
+    assert hist.W.unit.is_equivalent(units.keV)
 
     # Check shape
     assert hist.t.shape == dim_t.shape
@@ -41,6 +42,3 @@ def test_particle_history_units():
     assert hist.y.shape == dim_y.shape
     assert hist.z.shape == dim_z.shape
     assert hist.B.shape == dim_B.shape
-
-    # Check that W is undimensionalized to keV
-    assert hist.W.unit.is_equivalent(units.keV)
