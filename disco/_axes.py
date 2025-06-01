@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-from astropy import constants
 import cupy as cp
 
 from disco._dimensionalization import dim_space, dim_time

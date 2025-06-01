@@ -14,7 +14,7 @@ from disco._particle_history import ParticleHistory
 from disco._kernels import do_step_kernel, rhs_kernel
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
 
-from astropy import constants, units
+from astropy import units
 
 
 @dataclass
