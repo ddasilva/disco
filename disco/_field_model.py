@@ -98,13 +98,7 @@ class DimensionalizedFieldModel:
         charge: charge of particle, with units
         B0: dipole strength
         """
-        q = charge
-        Re = constants.R_earth
-        c = constants.c
-        sf = q * Re / (mass * c**2)
-        B_units = units.s / Re
-
-        self.negative_charge = q.value < 0
+        self.negative_charge = charge.value < 0
         self.Bx = cp.array(dim_magnetic_field(field_model.Bx, mass, charge))
         self.By = cp.array(dim_magnetic_field(field_model.By, mass, charge))
         self.Bz = cp.array(dim_magnetic_field(field_model.Bz, mass, charge))
@@ -113,7 +107,7 @@ class DimensionalizedFieldModel:
         self.Ey = cp.array(dim_electric_field(field_model.Ey, mass, charge))
         self.Ez = cp.array(dim_electric_field(field_model.Ez, mass, charge))
 
-        self.axes = field_model.axes
+        self.axes = field_model.axes.dimensionalize()
 
         self._memory_initialized = False
         self._memory_arr_size = None

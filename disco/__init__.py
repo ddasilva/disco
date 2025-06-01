@@ -7,12 +7,12 @@ from astropy.units import Quantity
 import cupy as cp
 import numpy as np
 
-from disco._dimensionalization import dim_time
-from disco._dimensionalization import undim_time
+from disco._axes import Axes
+from disco._dimensionalization import dim_time, undim_time, dim_space, dim_momentum
 from disco._field_model import FieldModel
 from disco._particle_history import ParticleHistory
-from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
 from disco._kernels import do_step_kernel, rhs_kernel
+from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
 
 from astropy import constants, units
 
@@ -81,72 +81,14 @@ class ParticleState:
         Re = constants.R_earth
         c = constants.c
 
-        self.x = cp.array((x / Re).to(1).value)
-        self.y = cp.array((y / Re).to(1).value)
-        self.z = cp.array((z / Re).to(1).value)
-        self.ppar = cp.array((ppar / (c * mass)).to(1).value)
+        self.x = cp.array(dim_space(x))
+        self.y = cp.array(dim_space(y))
+        self.z = cp.array(dim_space(z))
+        self.ppar = cp.array(dim_momentum(ppar, mass))
         self.magnetic_moment = cp.array((magnetic_moment / (charge * Re)).to(Re / units.s).value)
 
         self.mass = mass.to(units.kg)
         self.charge = charge.to(units.coulomb)
-
-
-class Axes:
-    """1D arrays of rectilinear grid axes
-
-    Attributes
-      x: x axis
-      y: y axis
-      z: z axis
-      t: time axis
-      r_inner: inner boundary
-    """
-
-    def __init__(self, x, y, z, t, r_inner):
-        """Initialize instance that is dimensionalized and stored
-        on the GPU.
-
-        Input arguments should have astropy units
-        """
-        assert len(x.shape) == 1
-        assert len(y.shape) == 1
-        assert len(z.shape) == 1
-        assert len(t.shape) == 1
-
-        Re = constants.R_earth
-        self.t = cp.array(dim_time(t))
-        self.x = cp.array((x / Re).to(1).value)
-        self.y = cp.array((y / Re).to(1).value)
-        self.z = cp.array((z / Re).to(1).value)
-        self.r_inner = (r_inner / Re).to(1).value
-
-    def get_neighbors(self, t, y):
-        """Get instance of RectilinearNeighbors specifying surrounding
-        cell through indeces of upper corner
-
-        Returns instance of _RectilinearNeighbors
-        """
-        field_i = cp.searchsorted(self.x, y[:, 0])
-        field_j = cp.searchsorted(self.y, y[:, 1])
-        field_k = cp.searchsorted(self.z, y[:, 2])
-        field_l = cp.searchsorted(self.t, t, side="right")
-
-        return _RectilinearNeighbors(
-            field_i=field_i,
-            field_j=field_j,
-            field_k=field_k,
-            field_l=field_l,
-        )
-
-
-@dataclass
-class _RectilinearNeighbors:
-    """Neighbors of given particles, used for interpolation"""
-
-    field_i: Any
-    field_j: Any
-    field_k: Any
-    field_l: Any
 
 
 def trace_trajectory(config, particle_state, field_model, verbose=1):
@@ -346,6 +288,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         B=hist_B,
         W=hist_W,
         h=hist_h,
+        mass=particle_state.mass,
+        charge=particle_state.charge,
     )
 
 
@@ -360,8 +304,6 @@ def _rhs(t, y, field_model, config, stopped_cutoff):
       ODE state variable
     field_model: _DimensionalizedFieldModel
       Used to E and B fields and particles
-    axes: Axes
-      Grid information, used for interpolation
     config: TraceConfig
       Tracing configuration
 

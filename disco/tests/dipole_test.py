@@ -78,14 +78,23 @@ def test_bouncing_basic():
 
     threshold = 1e-2
 
-    assert np.all(np.abs(hist.t[-1, :] - 46.96625915) < threshold)
-    assert np.all(np.abs(hist.x[-1, :] - 6.34677013) < threshold)
-    assert np.all(np.abs(hist.y[-1, :] - 0.36272624) < threshold)
-    assert np.all(np.abs(hist.z[-1, :] - 1.01137163) < threshold)
-    assert np.all(np.abs(hist.ppar[-1, :] - 0.37732395) < threshold)
-    assert np.all(np.abs(hist.B[-1, :] - -9.58897718) < threshold)
-    assert np.all(np.abs(hist.W[-1, :] - 0.17225467) < threshold)
-    assert np.all(np.abs(hist.h[-1, :] - 0.34064285) < threshold)
+    t = hist.t[-1, :].to(units.s).value
+    x = hist.x[-1, :].to(constants.R_earth).value
+    y = hist.y[-1, :].to(constants.R_earth).value
+    z = hist.z[-1, :].to(constants.R_earth).value
+    ppar = hist.ppar[-1, :].to(constants.m_e * constants.c).value
+    B = hist.B[-1, :].to(units.nT).value
+    W = hist.W[-1, :].to(constants.m_e * constants.c**2).value
+    h = hist.h[-1, :].to(units.s).value
+
+    assert np.all(np.abs(t - 0.99920958) < threshold)
+    assert np.all(np.abs(x - 6.34677013) < threshold)
+    assert np.all(np.abs(y - 0.36272624) < threshold)
+    assert np.all(np.abs(z - 1.01137163) < threshold)
+    assert np.all(np.abs(ppar - 0.37732395) < threshold)
+    assert np.all(np.abs(B - 120.45078467) < threshold)
+    assert np.all(np.abs(W - 0.17225467) < threshold)
+    assert np.all(np.abs(h - 0.00718319) < threshold)
 
 
 def test_bouncing_history():
@@ -137,7 +146,9 @@ def test_bouncing_stop_cond():
 
     # Integration will stop AFTER stop_cond is true
     test_threshold = 1.1
-    assert np.all(hist.z[:, :] < test_threshold)
+    z = hist.z[:, :].to(constants.R_earth).value
+
+    assert np.all(z < test_threshold)
 
 
 def test_oob_zmax():
@@ -155,7 +166,10 @@ def test_oob_zmax():
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
-    assert np.all(hist.z[:, :-1] < field_model.axes.z.get()[-1])
+    z_got = hist.z[:, :-1].to(constants.R_earth).value
+    z_expected = field_model.axes.z[-1].to(constants.R_earth).value
+
+    assert np.all(z_got < z_expected)
 
 
 def test_oob_rinner():
@@ -172,7 +186,7 @@ def test_oob_rinner():
     particle_state = _setup_particle_state(pos_x=6.6, pitch_angle=0)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
-    r = np.sqrt(hist.x**2 + hist.y**2 + hist.z**2)
+    r = np.sqrt(hist.x**2 + hist.y**2 + hist.z**2).to(constants.R_earth)
 
     assert np.all(r > field_model.axes.r_inner)
 

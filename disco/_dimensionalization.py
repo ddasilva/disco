@@ -2,6 +2,46 @@
 from astropy import constants, units
 
 
+def dim_momentum(val, mass):
+    """Dimensionalize a momentum value.
+    Args
+      val: value with units
+      mass: mass of particle with units
+    Returns
+      value in no units
+    """
+    sf = constants.c * mass
+
+    return (val / sf).to(1).value
+
+
+def undim_momentum(val, mass):
+    """Redimensionalize a momentum value.
+
+    Args
+      val: value with units
+      mass: mass of particle
+    Returns
+        value with units, set to keV s / m
+    """
+    sf = constants.c * mass
+    out_units = units.keV * units.s / units.m
+
+    return (val * sf).to(out_units)
+
+
+def undim_energy(val, mass):
+    """Redimensionalize an energy value.
+
+    Args
+      val: value with units
+      mass: mass of particle with units
+    Returns
+      value with no units.
+    """
+    return (val * mass * constants.c**2).to(units.keV)
+
+
 def dim_space(val):
     """Dimensionalize a space value.
     Args
