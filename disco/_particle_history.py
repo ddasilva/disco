@@ -1,3 +1,8 @@
+from _dimensionalization import (
+    undim_time,
+    undim_magnetic_field,
+)
+
 class ParticleHistory:
     """History of particle states.
 
@@ -7,7 +12,7 @@ class ParticleHistory:
     """
 
     def __init__(self, t, x, y, z, ppar, B, W, h):
-        self.t = t
+        self.t = undim_time(t)
         self.x = x
         self.y = y
         self.z = z

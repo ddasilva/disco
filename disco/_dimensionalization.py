@@ -2,13 +2,34 @@
 from astropy import constants, units
 
 
+def dim_space(val):
+    """Dimensionalize a space value.
+    Args
+      value: value with units
+    Returns
+        value in no units
+    """
+    return val.to(constants.R_earth).value
+
+
+def undim_space(val):
+    """Redimensionalize a space value.
+
+    Args
+      value: value with units
+    Returns
+      value in redimensionalized units
+    """
+    return val * constants.R_earth
+
+
 def dim_magnetic_field(val, mass, charge):
     """Redimensionalize a magnetic field value.
 
     Args
       value: value with units
     Returns
-      value in redimensionalized units
+      value in no units
     """
     sf = charge * constants.R_earth / (mass * constants.c**2)
     B_units = units.s / constants.R_earth
@@ -22,7 +43,7 @@ def dim_electric_field(val, mass, charge):
     Args
       value: value with units
     Returns
-      value in redimensionalized units
+      value in no units
     """
     sf = charge * constants.R_earth / (mass * constants.c**2)
 
@@ -54,7 +75,7 @@ def undim_electric_field(val, mass, charge):
     Returns
       value in redimensionalized units
     """
-    sf = charge * constants.R_earth / (mass * c**2)
+    sf = charge * constants.R_earth / (mass * constants.c**2)
     out_units = units.mV / units.m
 
     return (val / sf).to(out_units)
@@ -66,7 +87,7 @@ def dim_time(val):
     Args
       value: value with units
     Returns
-      value in redimensionalized units
+      value in no units
     """
     sf = constants.c / constants.R_earth
     return (sf * val).to(1).value
