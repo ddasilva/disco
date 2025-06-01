@@ -1,14 +1,14 @@
 from dataclasses import dataclass
 import math
 import sys
-from typing import Any, Optional, List, Callable
+from typing import Optional, List, Callable
 
 from astropy.units import Quantity
 import cupy as cp
 import numpy as np
 
 from disco._axes import Axes
-from disco._dimensionalization import dim_time, undim_time, dim_space, dim_momentum
+from disco._dimensionalization import dim_time, undim_time, dim_space, dim_momentum, dim_magnetic_moment
 from disco._field_model import FieldModel
 from disco._particle_history import ParticleHistory
 from disco._kernels import do_step_kernel, rhs_kernel
@@ -77,15 +77,11 @@ class ParticleState:
         Input argument should have astropy units attached
         Returns ParticleState instance
         """
-        # Using redimensionalization of Elkington et al., 2002
-        Re = constants.R_earth
-        c = constants.c
-
         self.x = cp.array(dim_space(x))
         self.y = cp.array(dim_space(y))
         self.z = cp.array(dim_space(z))
         self.ppar = cp.array(dim_momentum(ppar, mass))
-        self.magnetic_moment = cp.array((magnetic_moment / (charge * Re)).to(Re / units.s).value)
+        self.magnetic_moment = cp.array(dim_magnetic_moment(magnetic_moment, charge))
 
         self.mass = mass.to(units.kg)
         self.charge = charge.to(units.coulomb)

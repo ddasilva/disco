@@ -1,4 +1,9 @@
-"""Functions relating to dimensionalization."""
+"""Functions relating to dimensionalization.
+
+In this module we implement the dimensionalization scheme of:
+  Elkington et al., 2002, Journal of Atmospheric and Solar-Terrestrial 
+  Physics. https://doi.org/10.1016/S1364-6826(02)00018-4
+"""
 from astropy import constants, units
 
 
@@ -130,6 +135,7 @@ def dim_time(val):
       value in no units
     """
     sf = constants.c / constants.R_earth
+
     return (sf * val).to(1).value
 
 
@@ -142,4 +148,20 @@ def undim_time(val):
       value with units
     """
     sf = constants.R_earth / constants.c
+
     return val * sf
+
+
+def dim_magnetic_moment(val, charge):
+    """Dimensionalize a magnetic moment value.
+
+    Args
+      val: value with units
+      charge: charge of particle with units
+    Returns
+      value in no units
+    """
+    sf =  1/ (charge * constants.R_earth)
+    M_units = constants.R_earth / units.s
+
+    return (val * sf).to(M_units).value

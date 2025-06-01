@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
-from astropy import units, constants
+from astropy import constants
 import cupy as cp
 
 from disco._dimensionalization import dim_space, dim_time
@@ -29,7 +29,6 @@ class Axes:
         assert len(z.shape) == 1
         assert len(t.shape) == 1
 
-        Re = constants.R_earth
         self.t = t
         self.x = x
         self.y = y
