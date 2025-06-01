@@ -1,4 +1,4 @@
-from _dimensionalization import (
+from disco._dimensionalization import (
     undim_time,
     undim_magnetic_field,
 )
