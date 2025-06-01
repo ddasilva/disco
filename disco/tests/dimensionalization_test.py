@@ -3,12 +3,17 @@
 from astropy import units
 from astropy.constants import m_e, e, R_earth
 from disco._dimensionalization import (
-    dim_momentum, undim_momentum,
-    dim_space, undim_space,
-    dim_time, undim_time,
-    dim_magnetic_field, undim_magnetic_field,
-    dim_electric_field, undim_electric_field,
-    undim_energy
+    dim_momentum,
+    undim_momentum,
+    dim_space,
+    undim_space,
+    dim_time,
+    undim_time,
+    dim_magnetic_field,
+    undim_magnetic_field,
+    dim_electric_field,
+    undim_electric_field,
+    undim_energy,
 )
 
 
