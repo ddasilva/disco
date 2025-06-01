@@ -1,3 +1,6 @@
+> [!WARNING]  
+> Warning: this code is under active development, and the API will change. Please check back later or contact the author if you plan to use this code.
+
 DISCO - Drift Integration Simulation COde
 -----------------------------------------
 
