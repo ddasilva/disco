@@ -72,7 +72,7 @@ class DimensionalizedAxes:
         field_k = cp.searchsorted(self.z, y[:, 2])
         field_l = cp.searchsorted(self.t, t, side="right")
 
-        return _Neighbors(
+        return Neighbors(
             field_i=field_i,
             field_j=field_j,
             field_k=field_k,
@@ -81,7 +81,7 @@ class DimensionalizedAxes:
 
 
 @dataclass
-class _Neighbors:
+class Neighbors:
     """Neighbors of given particles, used for interpolation"""
 
     field_i: Any
