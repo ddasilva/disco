@@ -11,6 +11,12 @@ from disco.constants import DEFAULT_B0
 from disco._field_model import FieldModel
 
 
+class InvalidReaderShapeError(Exception):
+    """Raised when an array in a file does not have the expected shape
+    of number of dimensions.
+    """
+
+
 class GenericHdf5FieldModel(FieldModel):
     """Create a field model from values loaded out of an HDF5 file.
 
@@ -61,8 +67,43 @@ class GenericHdf5FieldModel(FieldModel):
 
         hdf_file.close()
 
+        # Check shapes
+        self._check_shapes(Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis)
+
         # Create axes instance
         axes = Axes(xaxis, yaxis, zaxis, taxis, r_inner)
 
         # Use parent constructor
         super().__init__(Bx, By, Bz, Ex, Ey, Ez, axes, B0=B0)
+
+    def _check_shapes(self, Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis):
+        """Check that the shapes of the arrays match expected dimensions.
+
+        Raises
+        ------
+        InvalidReaderShapeError
+            If any array does not have the expected shap or number of dimensions.
+        """
+        # The the ndims of the 1D axis arrays
+        expected_ndims = 1
+        arrays = [xaxis, yaxis, zaxis, taxis] 
+        array_names = ["xaxis", "yaxis", "zaxis", "taxis"]
+
+        for arr, name in zip(arrays, array_names):
+            if len(arr.shape) != expected_ndims:
+                raise InvalidReaderShapeError(
+                    f"{name} has shape {arr.shape}, expected {expected_ndims} dimsensions"
+                ) 
+
+        # Check the shape of the 4D field arrays
+        expected_shape = (xaxis.shape[0], yaxis.shape[0], zaxis.shape[0], taxis.shape[0])
+        arrays = [Bx, By, Bz, Ex, Ey, Ez]
+        array_names = ["Bx", "By", "Bz", "Ex", "Ey", "Ez"]
+        
+        for arr, name in zip(arrays, array_names):
+            if arr.shape != expected_shape:
+                raise InvalidReaderShapeError(
+                     f"{name} has shape {arr.shape}, expected {expected_shape}"
+                      " (nx, ny, nz, nt)"
+                )
+            
