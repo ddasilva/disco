@@ -7,6 +7,8 @@ from astropy.units import Quantity
 import cupy as cp
 import numpy as np
 
+from disco._dimensionalization import dim_time
+from disco._dimensionalization import undim_time
 from disco._field_model import FieldModel
 from disco._particle_history import ParticleHistory
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
@@ -112,7 +114,7 @@ class Axes:
         assert len(t.shape) == 1
 
         Re = constants.R_earth
-        self.t = cp.array(_redim_time(t))
+        self.t = cp.array(dim_time(t))
         self.x = cp.array((x / Re).to(1).value)
         self.y = cp.array((y / Re).to(1).value)
         self.z = cp.array((z / Re).to(1).value)
@@ -174,7 +176,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
     npart = particle_state.x.size
-    t_initial = _redim_time(config.t_initial)
+    t_initial = dim_time(config.t_initial)
     t = cp.zeros(npart) + t_initial
 
     y = cp.zeros((npart, NSTATE))
@@ -184,11 +186,11 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     y[:, 3] = particle_state.ppar
     y[:, 4] = particle_state.magnetic_moment
 
-    h = cp.zeros(npart) + _redim_time(config.h_initial)
+    h = cp.zeros(npart) + dim_time(config.h_initial)
     if config.integrate_backwards:
         h *= -1
 
-    t_final = _redim_time(config.t_final)
+    t_final = dim_time(config.t_final)
     all_complete = False
     stopped = cp.zeros(npart, dtype=bool)
     total_reorder = cp.arange(npart, dtype=int)
@@ -295,7 +297,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         # Print message to console if verbose enabled
         if verbose > 0:
             r_mean = cp.sqrt(y[:, 0] ** 2 + y[:, 1] ** 2 + y[:, 2] ** 2).mean()
-            h_step = _undim_time(float(h.mean())).to(units.ms).value
+            h_step = undim_time(float(h.mean())).to(units.ms).value
 
             t_progress = min((t.min() - t_initial) / (t_final - t_initial), 1)
 
@@ -485,30 +487,6 @@ def _do_step(
     num_iterated = mask.sum()
 
     return num_iterated
-
-
-def _redim_time(val):
-    """Redimensionalize a time value.
-
-    Args
-      value: value with units
-    Returns
-      value in redimensionalized units
-    """
-    sf = constants.c / constants.R_earth
-    return (sf * val).to(1).value
-
-
-def _undim_time(val):
-    """Redimensionalize a time value.
-
-    Args
-      value: value in seconds
-    Returns
-      value in redimensionalized units
-    """
-    sf = constants.R_earth / constants.c
-    return val * sf
 
 
 def _calc_gamma_W(B, y):

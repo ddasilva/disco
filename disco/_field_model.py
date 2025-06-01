@@ -4,6 +4,7 @@ import math
 
 import cupy as cp
 
+from disco._dimensionalization import dim_magnetic_field, dim_electric_field
 from disco._kernels import multi_interp_kernel
 from disco.constants import BLOCK_SIZE, DEFAULT_B0
 
@@ -104,13 +105,14 @@ class DimensionalizedFieldModel:
         B_units = units.s / Re
 
         self.negative_charge = q.value < 0
-        self.Bx = cp.array((sf * field_model.Bx).to(B_units).value)
-        self.By = cp.array((sf * field_model.By).to(B_units).value)
-        self.Bz = cp.array((sf * field_model.Bz).to(B_units).value)
-        self.B0 = float((sf * field_model.B0).to(B_units).value)
-        self.Ex = cp.array((sf * field_model.Ex).to(1).value)
-        self.Ey = cp.array((sf * field_model.Ey).to(1).value)
-        self.Ez = cp.array((sf * field_model.Ez).to(1).value)
+        self.Bx = cp.array(dim_magnetic_field(field_model.Bx, mass, charge))
+        self.By = cp.array(dim_magnetic_field(field_model.By, mass, charge))
+        self.Bz = cp.array(dim_magnetic_field(field_model.Bz, mass, charge))
+        self.B0 = cp.array(dim_magnetic_field(field_model.B0, mass, charge))
+        self.Ex = cp.array(dim_electric_field(field_model.Ex, mass, charge))
+        self.Ey = cp.array(dim_electric_field(field_model.Ey, mass, charge))
+        self.Ez = cp.array(dim_electric_field(field_model.Ez, mass, charge))
+
         self.axes = field_model.axes
 
         self._memory_initialized = False
