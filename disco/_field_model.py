@@ -79,8 +79,6 @@ class DimensionalizedFieldModel:
     used to propagate particles
     ."""
 
-    DEFAULT_RAW_B0 = 31e3 * units.nT
-
     def __init__(self, field_model, mass, charge):
         """Get an instance that is dimensionalized and stored on the GPU.
 
