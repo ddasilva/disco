@@ -3,7 +3,7 @@ import numpy as np
 from astropy import constants, units
 from scipy.constants import elementary_charge
 
-from .. import TraceConfig, Axes, FieldModel, ParticleState, trace_trajectory
+from disco import TraceConfig, Axes, FieldModel, ParticleState, trace_trajectory
 
 
 def _setup_field_model(charge=-1, backwards_time=False):
