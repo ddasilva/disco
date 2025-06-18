@@ -2,43 +2,84 @@
 import numpy as np
 from astropy import units, constants
 from disco._particle_history import ParticleHistory
+import tempfile
 
 
 def test_particle_history_units():
     """Test ParticleHistory handles units properly."""
-    # Define base variables with astropy units
-    dim_t = np.array([1.0, 2.0])
-    dim_x = np.array([1.0, 2.0])
-    dim_y = np.array([2.0, 3.0])
-    dim_z = np.array([3.0, 4.0])
-    dim_ppar = np.array([10.0, 20.0])
-    dim_B = np.array([50.0, 60.0])
-    dim_W = np.array([1.0, 2.0])
-    dim_h = np.array([0.1, 0.2])
+    # Define base variables
     mass = constants.m_e
     charge = constants.e.si
 
+    t = np.array([1.0, 2.0]) * units.s
+    x = np.array([1.0, 2.0]) * constants.R_earth
+    y = np.array([2.0, 3.0]) * constants.R_earth
+    z = np.array([3.0, 4.0]) * constants.R_earth
+    ppar = np.array([10.0, 20.0]) * (units.keV * units.s / units.m)
+    B = np.array([50.0, 60.0]) * units.nT
+    M = np.array([1.0, 1.0]) * (units.MeV / units.nT)  # Magnetic moment
+    W = np.array([1.0, 2.0]) * (mass * constants.c**2)  # Energy
+    h = np.array([0.1, 0.2]) * units.s  # Time step
+
     # Create ParticleHistory instance
-    hist = ParticleHistory(dim_t, dim_x, dim_y, dim_z, dim_ppar, dim_B, dim_W, dim_h, mass, charge)
+    hist = ParticleHistory(t, x, y, z, ppar, M, B, W, h, mass, charge)
 
     # Check that all attributes exist
     for attr in ["t", "x", "y", "z", "ppar", "B", "W", "h"]:
         assert hasattr(hist, attr)
 
-    # Check that attributes have units
-    assert hist.t.unit.is_equivalent(units.s)
-    assert hist.x.unit.is_equivalent(constants.R_earth.unit)
-    assert hist.y.unit.is_equivalent(constants.R_earth.unit)
-    assert hist.z.unit.is_equivalent(constants.R_earth.unit)
-    assert hist.ppar.unit.is_equivalent(units.keV * units.s / units.m)
-    assert hist.B.unit.is_equivalent(units.nT)
-    assert hist.W.unit.is_equivalent(units.keV)
-    assert hist.h.unit.is_equivalent(units.s)
-    assert hist.W.unit.is_equivalent(units.keV)
-
     # Check shape
-    assert hist.t.shape == dim_t.shape
-    assert hist.x.shape == dim_x.shape
-    assert hist.y.shape == dim_y.shape
-    assert hist.z.shape == dim_z.shape
-    assert hist.B.shape == dim_B.shape
+    assert hist.t.shape == t.shape
+    assert hist.x.shape == x.shape
+    assert hist.y.shape == y.shape
+    assert hist.z.shape == z.shape
+    assert hist.B.shape == B.shape
+
+
+def test_particle_history_save_load_roundtrip():
+    """Test that ParticleHistory.save() and ParticleHistory.load() are consistent."""
+    import tempfile
+    import numpy as np
+    from astropy import units, constants
+    from disco._particle_history import ParticleHistory
+
+    # Define base variables
+    t = np.array([1.0, 2.0]) * units.s
+    x = np.array([1.0, 2.0]) * constants.R_earth
+    y = np.array([2.0, 3.0]) * constants.R_earth
+    z = np.array([3.0, 4.0]) * constants.R_earth
+    ppar = np.array([10.0, 20.0]) * (units.keV * units.s / units.m)
+    B = np.array([50.0, 60.0]) * units.nT
+    M = np.array([1.0, 1.0]) * (units.MeV / units.nT)
+    W = np.array([1.0, 2.0]) * (constants.m_e * constants.c**2)
+    h = np.array([0.1, 0.2]) * units.s
+    mass = constants.m_e
+    charge = constants.e.si
+
+    # Create ParticleHistory instance
+    hist = ParticleHistory(
+        t=t, x=x, y=y, z=z, ppar=ppar, M=M, B=B, W=W, h=h, mass=mass, charge=charge
+    )
+
+    # Save to a temporary file
+    with tempfile.NamedTemporaryFile(suffix=".h5") as temp_file:
+        hist.save(temp_file.name)
+
+        # Load from the same file
+        loaded_hist = ParticleHistory.load(temp_file.name)
+
+    # Assert that all attributes are equal
+    for attr in ["t", "x", "y", "z", "ppar", "M", "B", "W", "h"]:
+        expected = getattr(hist, attr).value
+        got = getattr(loaded_hist, attr).value
+        np.testing.assert_allclose(expected, got, err_msg=attr)
+
+        expected_units = getattr(hist, attr).unit
+        got_units = getattr(loaded_hist, attr).unit
+        assert (
+            expected_units == got_units
+        ), f"Units mismatch for {attr}: {expected_units} != {got_units}"
+
+    # Assert mass and charge are equal
+    assert hist.mass == loaded_hist.mass
+    assert hist.charge == loaded_hist.charge

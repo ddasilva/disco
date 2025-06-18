@@ -14,6 +14,12 @@ from disco._dimensionalization import (
     dim_space,
     dim_momentum,
     dim_magnetic_moment,
+    dim_magnetic_field,
+    undim_magnetic_field,
+    undim_space,
+    undim_energy,
+    undim_momentum,
+    undim_magnetic_moment,
 )
 from disco._field_model import FieldModel
 from disco._particle_history import ParticleHistory
@@ -266,15 +272,16 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_h.append(h[total_reorder_rev].get())
 
     # Prepare history object and return instance of ParticleHistory
-    hist_t = np.array(hist_t)
-    hist_B = np.array(hist_B)
-    hist_W = np.array(hist_W)
-    hist_h = np.array(hist_h)
+    hist_t = undim_time(np.array(hist_t))
+    hist_B = undim_magnetic_field(np.array(hist_B), particle_state.mass, particle_state.charge)
+    hist_W = undim_energy(np.array(hist_W), particle_state.mass)
+    hist_h = undim_time(np.array(hist_h))
     hist_y = np.array(hist_y)
-    hist_pos_x = hist_y[:, :, 0]
-    hist_pos_y = hist_y[:, :, 1]
-    hist_pos_z = hist_y[:, :, 2]
-    hist_ppar = hist_y[:, :, 3]
+    hist_pos_x = undim_space(hist_y[:, :, 0])
+    hist_pos_y = undim_space(hist_y[:, :, 1])
+    hist_pos_z = undim_space(hist_y[:, :, 2])
+    hist_ppar = undim_momentum(hist_y[:, :, 3], particle_state.mass)
+    hist_M = undim_magnetic_moment(hist_y[:, :, 4], particle_state.charge)
 
     return ParticleHistory(
         t=hist_t,
@@ -282,6 +289,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         y=hist_pos_y,
         z=hist_pos_z,
         ppar=hist_ppar,
+        M=hist_M,
         B=hist_B,
         W=hist_W,
         h=hist_h,

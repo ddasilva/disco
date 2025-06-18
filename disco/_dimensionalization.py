@@ -7,6 +7,17 @@ In this module we implement the dimensionalization scheme of:
 from astropy import constants, units
 
 
+# Standard units for when variables have them
+TIME_UNITS = units.s
+SPACE_UNITS = constants.R_earth
+MOMENTUM_UNITS = units.keV * units.s / units.m
+MAGFIELD_UNITS = units.nT
+MAGNETIC_MOMENT_UNITS = units.MeV / units.nT
+ENERGY_UNITS = units.eV
+MASS_UNITS = units.kg
+CHARGE_UNITS = units.C
+
+
 def dim_momentum(val, mass):
     """Dimensionalize a momentum value.
     Args
@@ -33,6 +44,20 @@ def undim_momentum(val, mass):
     out_units = units.keV * units.s / units.m
 
     return (val * sf).to(out_units)
+
+
+def dim_energy(val, mass):
+    """Dimensionalize an energy value.
+
+    Args
+      val: value with units
+      mass: mass of particle  with units
+    Returns
+      value in no units
+    """
+    sf = mass * constants.c**2
+
+    return (val / sf).to(1).value
 
 
 def undim_energy(val, mass):
@@ -165,3 +190,18 @@ def dim_magnetic_moment(val, charge):
     M_units = constants.R_earth / units.s
 
     return (val * sf).to(M_units).value
+
+
+def undim_magnetic_moment(val, charge):
+    """Redimensionalize a magnetic moment value.
+
+    Args
+      val: value with units
+      charge: charge of particle with units
+    Returns
+      value with units, set to MeV/nT
+    """
+    sf = 1 / (charge * constants.R_earth)
+    M_units = constants.R_earth / units.s
+
+    return (val * M_units / sf).to(units.MeV / units.nT)

@@ -14,6 +14,7 @@ from disco._dimensionalization import (
     dim_electric_field,
     undim_electric_field,
     undim_energy,
+    dim_energy,
 )
 
 
@@ -67,9 +68,11 @@ def test_dim_undim_electric_field_roundtrip():
     assert abs((undimmed - val).to_value(units.mV / units.m)) < 1e-10
 
 
-def test_undim_energy_units():
-    """Test that undim_energy returns a value with keV units."""
-    val = 2.0
+def test_dim_undim_energy_roundtrip():
+    """Test that dim_energy and undim_energy are inverse operations."""
+    val = 2.0 * units.keV
     mass = m_e
-    result = undim_energy(val, mass)
-    assert result.unit.is_equivalent(units.keV)
+    dimmed = dim_energy(val, mass)
+    undimmed = undim_energy(dimmed, mass)
+    assert undimmed.unit.is_equivalent(units.keV)
+    assert abs((undimmed - val).to_value(units.keV)) < 1e-10
