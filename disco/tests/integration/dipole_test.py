@@ -1,6 +1,8 @@
 import numpy as np
 
 from astropy import constants, units
+from matplotlib import pyplot as plt
+import pytest
 from scipy.constants import elementary_charge
 
 from disco import TraceConfig, Axes, FieldModel, ParticleState, trace_trajectory
@@ -115,7 +117,8 @@ def setup_plotting(output_freq):
     return hist
 
 
-def test_bouncing_plotting_xy():
+@pytest.mark.parametrize("method_name", ["plot_xy", "plot_xz", "plot_yz"])
+def test_bouncing_plotting_xy(method_name):
     """Tests bouncing a particle in the outer radiation belt and then
     plotting the results.
 
@@ -123,14 +126,25 @@ def test_bouncing_plotting_xy():
     """
     hist = setup_plotting(output_freq=1)
 
-    ax = hist.plot_xy()
+    method = getattr(hist, method_name)
+
+    ax = method()
     assert ax is not None
 
-    hist.plot_xy(sample=1)
-    hist.plot_xy(inds=0)
-    hist.plot_xy(inds=[0, 1])
-    hist.plot_xy(endpoints=True)
-    hist.plot_xy(earth=False)
+    ax = method(sample=1)
+    ax = method(inds=0)
+    ax = method(inds=[0, 1])
+    ax = method(endpoints=True)
+    ax = method(earth=False)
+
+    with pytest.raises(IndexError, match="out of bounds for the number of particles"):
+        ax = method(inds=1000)
+
+    with pytest.raises(IndexError, match="out of bounds for the number of particles"):
+        ax = method(inds=np.arange(1000))
+
+    # Need to close figures, otherwise matplotlib will complain
+    plt.close("all")
 
 
 def test_bouncing_history():
