@@ -37,7 +37,7 @@ class ParticleHistory:
 
     Arrays are in the shape (n_time_steps, n_particles).
     Mass and charge are scalars.
-    
+
     See also:
     * `disco.TraceConfig(output_freq=...)`: Controlling between how many
       iterations between particle state is saved.
