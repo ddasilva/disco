@@ -99,7 +99,6 @@ class ParticleHistory:
             M = hdf["M"][:] * MAGNETIC_MOMENT_UNITS
             B = hdf["B"][:] * MAGFIELD_UNITS
             W = hdf["W"][:] * ENERGY_UNITS
-
             h = hdf["h"][:] * TIME_UNITS
             mass = hdf["mass"][()] * MASS_UNITS
             charge = hdf["charge"][()] * CHARGE_UNITS

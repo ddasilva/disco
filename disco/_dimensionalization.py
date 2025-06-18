@@ -7,17 +7,6 @@ In this module we implement the dimensionalization scheme of:
 from astropy import constants, units
 
 
-# Standard units for when variables have them
-TIME_UNITS = units.s
-SPACE_UNITS = constants.R_earth
-MOMENTUM_UNITS = units.keV * units.s / units.m
-MAGFIELD_UNITS = units.nT
-MAGNETIC_MOMENT_UNITS = units.MeV / units.nT
-ENERGY_UNITS = units.eV
-MASS_UNITS = units.kg
-CHARGE_UNITS = units.C
-
-
 def dim_momentum(val, mass):
     """Dimensionalize a momentum value.
     Args
