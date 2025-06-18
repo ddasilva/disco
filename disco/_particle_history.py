@@ -1,5 +1,9 @@
+import warnings
+
 from astropy import units, constants
 import h5py
+from matplotlib import pyplot as plt
+import numpy as np
 
 from disco._dimensionalization import (
     undim_time,
@@ -24,10 +28,16 @@ ENERGY_UNITS = units.eV
 MASS_UNITS = units.kg
 CHARGE_UNITS = units.C
 
+# Maximum number of particles before a warning is issued
+MAX_PARTICLES_BEFORE_WARNING = 1000
+
 
 class ParticleHistory:
     """History of particle states.
 
+    Arrays are in the shape (n_time_steps, n_particles).
+    Mass and charge are scalars.
+    
     See also:
     * `disco.TraceConfig(output_freq=...)`: Controlling between how many
       iterations between particle state is saved.
@@ -104,3 +114,80 @@ class ParticleHistory:
             charge = hdf["charge"][()] * CHARGE_UNITS
 
         return cls(t, x, y, z, ppar, M, B, W, h, mass, charge)
+
+    def plot_xy(
+        self,
+        ax=None,
+        inds=None,
+        endpoints=False,
+        sample=None,
+        earth=True,
+        grid=True,
+        title="Particle Trajectory in XY Plane",
+    ):
+        """Plot the particle trajectory in the XY plane.
+
+        Args:
+          ax: Matplotlib axis to plot on. If None, a new figure and axis will be created.
+          inds: Indices of the points to plot. If None, all points will be plotted.
+          endpoints: If True, plot only the start and end points of the trajectory.
+          sample: If specified, randomly sample this many particles to plot.
+          earth: If True, draw a circle representing the Earth at the origin.
+          grid: If True, add a grid to the plot.
+          title: Title of the plot.
+        Returns
+          ax: The axis with the plotted trajectory.
+        """
+        # Create a new figure and axis if none is provided
+        if ax is None:
+            _, ax = plt.subplots()
+
+        # Determine indices to plot
+        if inds is None:
+            inds = np.arange(self.x.shape[1], dtype=int)
+        elif not isinstance(inds, np.ndarray):
+            inds = np.array([inds])
+        if sample is not None:
+            np.random.shuffle(inds)
+            inds = inds[:sample]
+
+        # Issue warning if too many particles are being plotted
+        if inds.size > MAX_PARTICLES_BEFORE_WARNING:
+            warnings.warn(
+                "Plotting more than 1000 points may be slow. Consider downsampling with sample=500."
+            )
+
+        # Ensure indices are within bounds
+        if inds.max() >= self.x.shape[1]:
+            raise IndexError(
+                f"Index {inds.max()} is out of bounds for the number of particles {self.x.shape[1]}."
+            )
+
+        # Plot the trajectories or endpoints
+        x_vals = self.x.value
+        y_vals = self.y.value
+
+        if endpoints:
+            ax.plot(x_vals[-1, inds], y_vals[-1, inds], marker=".")
+        else:
+            for i in inds:
+                ax.plot(x_vals[:, i], y_vals[:, i])
+
+        # Draw earth if set
+        if earth:
+            earth_circle = plt.Circle((0, 0), 1, color="k", zorder=100)
+            ax.add_patch(earth_circle)
+
+        # Setup axis labels and title
+        ax.set_xlabel("X ($R_E$)")
+        ax.set_ylabel("Y ($R_E$)")
+        ax.set_title(title)
+        ax.set_aspect("equal", adjustable="box")
+
+        # Setup grid if set
+        if grid:
+            ax.grid(True, which="both", linestyle="--", linewidth=0.5)
+            ax.axhline(0, color="black", linewidth=0.5)
+            ax.axvline(0, color="black", linewidth=0.5)
+
+        return ax

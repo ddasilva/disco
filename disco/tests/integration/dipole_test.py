@@ -97,9 +97,45 @@ def test_bouncing_basic():
     assert np.all(np.abs(h - 0.00718319) < threshold)
 
 
+def setup_plotting(output_freq):
+    """Sets up a bouncing particle in the outer radiation belt for
+    testing plotting
+    """
+    config = TraceConfig(
+        t_final=1 * units.s,
+        h_initial=5 * units.ms,
+        rtol=1e-2,
+        output_freq=output_freq,
+    )
+    field_model = _setup_field_model()
+    particle_state = _setup_particle_state(pos_x=6.6)
+
+    hist = trace_trajectory(config, particle_state, field_model, verbose=0)
+
+    return hist
+
+
+def test_bouncing_plotting_xy():
+    """Tests bouncing a particle in the outer radiation belt and then
+    plotting the results.
+
+    Checks that no exceptions are thrown during plotting
+    """
+    hist = setup_plotting(output_freq=1)
+
+    ax = hist.plot_xy()
+    assert ax is not None
+
+    hist.plot_xy(sample=1)
+    hist.plot_xy(inds=0)
+    hist.plot_xy(inds=[0, 1])
+    hist.plot_xy(endpoints=True)
+    hist.plot_xy(earth=False)
+
+
 def test_bouncing_history():
     """Tests bouncing a particle in the outer radiation belt
-    and recording trajectory history.
+    and plotting trajectory history.
     """
     config = TraceConfig(
         t_final=1 * units.s,
