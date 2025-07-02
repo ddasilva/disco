@@ -70,7 +70,6 @@ class FieldModel:
         ------
         instance of `DimensionalizedFieldModel`
         """
-
         return DimensionalizedFieldModel(self, mass, charge)
 
 
@@ -185,7 +184,15 @@ class DimensionalizedFieldModel:
         Returns
         -------
         Instance of _MultiInterpResult
+
+        Raises
+        ------
+        RuntimeError: Interpolation requires at minimum two timesteps
         """
+        # Make sure conditoins of quadlinear interpolation are met
+        if self.axes.t.size < 2:
+            raise RuntimeError("Field model interpolation requires at minimum two timesteps")
+
         # Use Axes object to get neighbors of cell
         neighbors = self.axes.get_neighbors(t, y)
 

@@ -22,6 +22,7 @@ dependencies = [
   'h5py>=3.13.0',
   'matplotlib>=3.10.3',
   'numpy>=1.22',
+  'pandas>=2.3.0',
   'spacepy>=0.7.0',
   'scipy>=1.15.3',
 ]

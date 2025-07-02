@@ -2,13 +2,195 @@
 
 Classes in this module are subclasses of `FieldModel`.
 """
+from datetime import datetime
+import glob
+import os
 
-from astropy import units
+from astropy import constants, units
 import h5py
+import numpy as np
+from spacepy import pycdf
 
 from disco import Axes
 from disco.constants import DEFAULT_B0
+from disco._regrid import regrid_pointcloud
 from disco._field_model import FieldModel
+
+
+class FieldModelDataset:
+    """This is an abstract base class to provide lazy loading for simulation
+    output.
+
+    See also
+    --------
+    disco._field_model_loader.LazyFieldModelLoader
+    """
+
+    def __init__(self):
+        raise NotImplementedError()
+
+    def get_time_axis(self):
+        """Get time axis with length equal to len(self)
+
+        Returns
+        -------
+        timestamps: array with units of time, and size equal to len(self)
+        """
+        raise NotImplementedError()
+
+    def __len__(self):
+        """Return length of the dataset in number of indices.
+
+        Returns
+        -------
+        length: integer number of timesteps
+        """
+        raise NotImplementedError()
+
+    def __getitem__(self, index):
+        """Return field model for current index of the simulation dataset.
+
+        Parameters
+        ----------
+        index: timestamp index, >= 0, and less then len(self)
+
+        Returns
+        -------
+        field_model: instance of FieldModel with one timestep
+        """
+        raise NotImplementedError()
+
+
+class SwmfCdfFieldModelDataset(FieldModelDataset):
+    """Subclass of FieldModelDataset for lazy loading of SWMF CDF Output"""
+
+    def __init__(
+        self,
+        glob_pattern,
+        timestamp_parser="3d__var_1_e%Y%m%d-%H%M%S",
+        timestamp_trim=12,
+        B0=DEFAULT_B0,
+    ):
+        """Create an instance of SwmfCdfFieldModelDataset
+
+        Parameters
+        ----------
+        glob_pattern: str
+            Pattern such as "/home/ubuntu/simulation_output/*.cdf"
+        timestamp_parser: str
+            datetime strptime pattern for parsing timestamps from filenames
+        timestamp_trim: int
+            trim this many characters from end of filenames before parsing timestamp
+        B0: quantity, units of magnetic field strength
+            Internal model for computing the electric from from -uxB
+        """
+        self.B0 = B0
+
+        self.cdf_files = glob.glob(glob_pattern)
+        self.cdf_files.sort()
+
+        # Check all files are CDF files
+        for cdf_file in self.cdf_files:
+            if not cdf_file.lower().endswith(".cdf"):
+                raise ValueError(f"Passed glob pattern that includes non-cdf file {repr(cdf_file)}")
+
+        if not len(self.cdf_files) > 1:
+            raise ValueError("Need at least 2 CDF files to trace output")
+
+        # Get timestamps as datetime from the file names
+        self.timestamps = []
+
+        for cdf_file in self.cdf_files:
+            time_str = os.path.basename(cdf_file[:-timestamp_trim])
+            timestamp = datetime.strptime(time_str, timestamp_parser)
+            self.timestamps.append(timestamp)
+
+        # Precompute time axis
+        self.time_axis = []
+
+        for timestamp in self.timestamps:
+            time = (timestamp - self.timestamps[0]).total_seconds() * units.s
+            self.time_axis.append(time)
+
+    def get_time_axis(self):
+        """Get time axis with length equal to len(self)
+
+        Returns
+            timestamps: array with units of time, and size equal to len(self)
+        """
+        return self.time_axis
+
+    def __len__(self):
+        """Return length of the dataset in number of indices.
+
+        Returns
+            length: integer number of timesteps
+        """
+        return len(self.cdf_files)
+
+    def __getitem__(self, index):
+        """Return field model for current index of the simulation dataset.
+
+        Args
+            index: timestamp index, >= 0, and less then len(self)
+        Returns
+            field_model: instance of FieldModel with one timestep
+        """
+        cdf = pycdf.CDF(self.cdf_files[index])
+
+        # Load XYZ Positoins
+        x = cdf["x"][:].squeeze() * constants.R_earth
+        y = cdf["y"][:].squeeze() * constants.R_earth
+        z = cdf["z"][:].squeeze() * constants.R_earth
+
+        # Load Magnetic Field as pointcloud
+        Bx_external = cdf["bx"][:].squeeze() * units.nT
+        By_external = cdf["by"][:].squeeze() * units.nT
+        Bz_external = cdf["bz"][:].squeeze() * units.nT
+
+        r = np.sqrt(x**2 + y**2 + z**2).value
+        Bx_dipole = 3 * x.value * z.value * self.B0 / r**5
+        By_dipole = 3 * y.value * z.value * self.B0 / r**5
+        Bz_dipole = (3 * z.value**2 - r**2) * self.B0 / r**5
+
+        Bx = Bx_dipole + Bx_external
+        By = By_dipole + By_external
+        Bz = Bz_dipole + Bz_external
+
+        # Load Flow Velocity as pointcloud
+        ux = cdf["ux"][:].squeeze() * units.km / units.s
+        uy = cdf["uy"][:].squeeze() * units.km / units.s
+        uz = cdf["uz"][:].squeeze() * units.km / units.s
+
+        cdf.close()
+
+        # Load Electric field as pointcloud
+        Ex, Ey, Ez = -np.cross([ux, uy, uz], [Bx, By, Bz], axis=0)
+
+        E_units = Bx.unit * ux.unit
+        Ex *= E_units
+        Ey *= E_units
+        Ez *= E_units
+
+        better_units = units.mV / units.m
+        Ex = Ex.to(better_units)
+        Ey = Ey.to(better_units)
+        Ez = Ez.to(better_units)
+
+        # Perform regridding
+        return regrid_pointcloud(
+            x.value,
+            y.value,
+            z.value,
+            self.time_axis[index].value,
+            Bx_external,
+            By_external,
+            Bz_external,
+            Ex.value,
+            Ey.value,
+            Ez.value,
+            B0=self.B0,
+        )
 
 
 class InvalidReaderShapeError(Exception):
