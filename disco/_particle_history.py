@@ -43,7 +43,7 @@ class ParticleHistory:
       iterations between particle state is saved.
     """
 
-    def __init__(self, t, x, y, z, ppar, M, B, W, h, mass, charge):
+    def __init__(self, t, x, y, z, ppar, M, B, W, h, stopped, mass, charge):
         self.t = t.to(TIME_UNITS)
         self.x = x.to(SPACE_UNITS)
         self.y = y.to(SPACE_UNITS)
@@ -53,6 +53,7 @@ class ParticleHistory:
         self.B = B.to(MAGFIELD_UNITS)
         self.W = W.to(ENERGY_UNITS)
         self.h = h.to(TIME_UNITS)
+        self.stopped = stopped.astype(bool)
         self.mass = mass.to(MASS_UNITS)
         self.charge = charge.to(CHARGE_UNITS)
 
@@ -74,6 +75,7 @@ class ParticleHistory:
             hdf["B"] = self.B.to_value(MAGFIELD_UNITS)
             hdf["W"] = self.W.to_value(ENERGY_UNITS)
             hdf["h"] = self.h.to_value(TIME_UNITS)
+            hdf["stopped"] = self.stopped
             hdf["mass"] = self.mass.to_value(MASS_UNITS)
             hdf["charge"] = self.charge.to_value(CHARGE_UNITS)
 
@@ -110,10 +112,11 @@ class ParticleHistory:
             B = hdf["B"][:] * MAGFIELD_UNITS
             W = hdf["W"][:] * ENERGY_UNITS
             h = hdf["h"][:] * TIME_UNITS
+            stopped = hdf["stopped"][:].astype(bool)
             mass = hdf["mass"][()] * MASS_UNITS
             charge = hdf["charge"][()] * CHARGE_UNITS
 
-        return cls(t, x, y, z, ppar, M, B, W, h, mass, charge)
+        return cls(t, x, y, z, ppar, M, B, W, h, stopped, mass, charge)
 
     def _plot_trajectory(
         self,

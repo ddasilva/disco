@@ -89,6 +89,8 @@ def test_bouncing_basic():
     W = hist.W[-1, :].to(constants.m_e * constants.c**2).value
     h = hist.h[-1, :].to(units.s).value
 
+    assert not np.any(hist.stopped[0, :])
+    assert np.all(hist.stopped[-1, :])
     assert np.all(np.abs(t - 0.99920958) < threshold)
     assert np.all(np.abs(x - 6.34677013) < threshold)
     assert np.all(np.abs(y - 0.36272624) < threshold)
@@ -194,10 +196,13 @@ def test_bouncing_stop_cond():
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
+    # Test stopped flags
+    assert not np.any(hist.stopped[0, :])
+    assert np.all(hist.stopped[-1, :])
+
     # Integration will stop AFTER stop_cond is true
     test_threshold = 1.1
     z = hist.z[:, :].to(constants.R_earth).value
-
     assert np.all(z < test_threshold)
 
 
@@ -272,7 +277,19 @@ def test_reorder_does_not_affect_history():
     # Trace trajectory
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
+    # Check stopping condition
     assert np.all(np.diff(hist.x) < 0)
+
+    # At the last iteration, all should be stopped
+    assert np.all(hist.stopped[-1, :])
+
+    # At the 2nd to last step, all but first two should be stopped
+    assert not np.any(hist.stopped[-2, :2])
+    assert np.all(hist.stopped[-2, 2:])
+
+    # At the 3nd to last step, all but first five should be stopped
+    assert not np.any(hist.stopped[-3, :5])
+    assert np.all(hist.stopped[-3, 5:])
 
 
 def test_bouncing_integrate_backwards():
@@ -292,3 +309,5 @@ def test_bouncing_integrate_backwards():
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
     assert hist.x.shape[0] > 100
+    assert not np.any(hist.stopped[0, :])
+    assert np.all(hist.stopped[-1, :])

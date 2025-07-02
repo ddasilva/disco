@@ -154,6 +154,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_W = []
     hist_B = []
     hist_h = []
+    hist_stopped = []
 
     # Iteration
     # ---------------------------
@@ -169,7 +170,8 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         # Reorder batches based on stopped flag to group stopped particles
         # on same warp (avoid blocking)
         if config.reorder_freq is not None and (iter_count % config.reorder_freq == 0):
-            print("Reordering to reduce GPU load...")
+            if verbose > 0:
+                print("Reordering to reduce GPU load...")
             cur_reorder = cp.argsort(stopped)
             y = y[cur_reorder]
             t = t[cur_reorder]
@@ -229,6 +231,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
             hist_B.append(B[total_reorder_rev].get())
             hist_W.append(W[total_reorder_rev].get())
             hist_h.append(h[total_reorder_rev].get())
+            hist_stopped.append(stopped[total_reorder_rev].get())
 
         # Do runge-kutta step, check to change stopping state, and change step size
         # if step is performed
@@ -270,12 +273,14 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_B.append(B[total_reorder_rev].get())
     hist_W.append(W[total_reorder_rev].get())
     hist_h.append(h[total_reorder_rev].get())
+    hist_stopped.append(stopped[total_reorder_rev].get())
 
     # Prepare history object and return instance of ParticleHistory
     hist_t = undim_time(np.array(hist_t))
     hist_B = undim_magnetic_field(np.array(hist_B), particle_state.mass, particle_state.charge)
     hist_W = undim_energy(np.array(hist_W), particle_state.mass)
     hist_h = undim_time(np.array(hist_h))
+    hist_stopped = np.array(hist_stopped)
     hist_y = np.array(hist_y)
     hist_pos_x = undim_space(hist_y[:, :, 0])
     hist_pos_y = undim_space(hist_y[:, :, 1])
@@ -293,6 +298,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         B=hist_B,
         W=hist_W,
         h=hist_h,
+        stopped=hist_stopped,
         mass=particle_state.mass,
         charge=particle_state.charge,
     )

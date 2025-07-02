@@ -20,12 +20,13 @@ def test_particle_history_units():
     M = np.array([1.0, 1.0]) * (units.MeV / units.nT)  # Magnetic moment
     W = np.array([1.0, 2.0]) * (mass * constants.c**2)  # Energy
     h = np.array([0.1, 0.2]) * units.s  # Time step
+    stopped = np.array([False, True], dtype=bool)
 
     # Create ParticleHistory instance
-    hist = ParticleHistory(t, x, y, z, ppar, M, B, W, h, mass, charge)
+    hist = ParticleHistory(t, x, y, z, ppar, M, B, W, h, stopped, mass, charge)
 
     # Check that all attributes exist
-    for attr in ["t", "x", "y", "z", "ppar", "B", "W", "h"]:
+    for attr in ["t", "x", "y", "z", "ppar", "B", "W", "h", "stopped"]:
         assert hasattr(hist, attr)
 
     # Check shape
@@ -34,6 +35,7 @@ def test_particle_history_units():
     assert hist.y.shape == y.shape
     assert hist.z.shape == z.shape
     assert hist.B.shape == B.shape
+    assert hist.stopped.shape == stopped.shape
 
 
 def test_particle_history_save_load_roundtrip():
@@ -53,12 +55,13 @@ def test_particle_history_save_load_roundtrip():
     M = np.array([1.0, 1.0]) * (units.MeV / units.nT)
     W = np.array([1.0, 2.0]) * (constants.m_e * constants.c**2)
     h = np.array([0.1, 0.2]) * units.s
+    stopped = np.array([False, True], dtype=bool)
     mass = constants.m_e
     charge = constants.e.si
 
     # Create ParticleHistory instance
     hist = ParticleHistory(
-        t=t, x=x, y=y, z=z, ppar=ppar, M=M, B=B, W=W, h=h, mass=mass, charge=charge
+        t=t, x=x, y=y, z=z, ppar=ppar, M=M, B=B, W=W, h=h, stopped=stopped, mass=mass, charge=charge
     )
 
     # Save to a temporary file
@@ -79,6 +82,8 @@ def test_particle_history_save_load_roundtrip():
         assert (
             expected_units == got_units
         ), f"Units mismatch for {attr}: {expected_units} != {got_units}"
+
+    assert np.all(hist.stopped == loaded_hist.stopped)
 
     # Assert mass and charge are equal
     assert hist.mass == loaded_hist.mass
