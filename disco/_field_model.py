@@ -1,4 +1,4 @@
-"""Module for just the FieldModel class, to prevent circular imports."""
+"""Module for just the FieldModel and DimensionalizedFieldModel classes"""
 from dataclasses import dataclass
 import math
 
@@ -160,7 +160,7 @@ class DimensionalizedFieldModel:
         self._memory_initialized = True
         self._memory_arr_size = arr_size
 
-    def multi_interp(self, t, y, stopped_cutoff):
+    def multi_interp(self, t, y, paused, stopped_cutoff):
         """Interpolate field values at given positions.
 
         Warning
@@ -176,14 +176,15 @@ class DimensionalizedFieldModel:
           Vector of dimensionalized particle times
         y: cupy array
            Vector of shape (npart, 5) of particle states
-        axes: Axes
-           Set of axes to interpolate on
+        paused: cupy array
+            Boolean array indicating whether interpolation was not done
+            because the required time slice of field data is not loaded.
         stopped_cutoff: int
            Cutoff index for partiles that no longer require processing
+
         Returns
         -------
-        Bx, By, Bz, Ex, Ey, Ez, dBxdx, dBxdy, dBxdz, dBydx, dBydy, dBydz,
-        dBzdx, dBzdy, dBzdz, B, dBdx, dBdy, dBdz
+        Instance of _MultiInterpResult
         """
         # Use Axes object to get neighbors of cell
         neighbors = self.axes.get_neighbors(t, y)
@@ -230,6 +231,7 @@ class DimensionalizedFieldModel:
             it,
             t,
             y[:stopped_cutoff],
+            paused,
             self._B0_arr,
             self._r_inner,
             t_axis,
@@ -300,6 +302,7 @@ class _MultiInterpResult:
     _DimensionalizedFieldModel.multi_interp()
     """
 
+    # Field values and partial derivatives at the requested points.
     Bx: cp.array
     By: cp.array
     Bz: cp.array

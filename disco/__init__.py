@@ -14,7 +14,6 @@ from disco._dimensionalization import (
     dim_space,
     dim_momentum,
     dim_magnetic_moment,
-    dim_magnetic_field,
     undim_magnetic_field,
     undim_space,
     undim_energy,
@@ -22,6 +21,7 @@ from disco._dimensionalization import (
     undim_magnetic_moment,
 )
 from disco._field_model import FieldModel
+from disco._field_model_loader import FieldModelLoader, StaticFieldModelLoader
 from disco._particle_history import ParticleHistory
 from disco._kernels import do_step_kernel, rhs_kernel
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
@@ -105,10 +105,10 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     Parameters
     ----------
     config: TraceConfig
-       Configuration for perorming the trace
+       Configuration for performing the trace
     particle_state: ParticleState
        Initial conditions of the particles
-    field_model: FieldModel
+    field_model: FieldModel or FieldModelLoader
        Magnetic and Electric field context
     verbose: int
       Set to zero to supress print statements
@@ -116,12 +116,17 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     Returns
     --------
     hist: ParticleHistory
-       History of the trace. If output_freq=None, contains only the last
+       History of the trace. If output_freq=None, contains only the first and last
        step.
     """
-    # Dimensionalize field model; this is done here because it requires
-    # info about the initial particle state
-    field_model = field_model.dimensionalize(particle_state.mass, particle_state.charge)
+    # If passing a field model, make a static field model loader
+    if isinstance(field_model, FieldModel):
+        field_model = field_model.dimensionalize(particle_state.mass, particle_state.charge)
+        field_model_loader = StaticFieldModelLoader(field_model)
+    elif isinstance(field_model, FieldModelLoader):
+        field_model_loader = field_model
+    else:
+        raise TypeError("field_model argument must be FieldModel or FieldModelLoader")
 
     # This implements the RK45 adaptive integration algorithm, with
     # absolute/relative tolerance and minimum/maximum step sizes
@@ -188,26 +193,28 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 
         # Call _rhs() function to implement multiple function evaluations of
         # right hand side.
-        k1, B = _rhs(t, y, field_model, stopped_cutoff)
+        k1, B, paused1 = _rhs(t, y, field_model_loader, stopped_cutoff)
         B = B.copy()
-        k2, _ = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model, stopped_cutoff)
-        k3, _ = _rhs(t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model, stopped_cutoff)
-        k4, _ = _rhs(
+        k2, _, paused2 = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model_loader, stopped_cutoff)
+        k3, _, paused3 = _rhs(
+            t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model_loader, stopped_cutoff
+        )
+        k4, _, paused4 = _rhs(
             t + h * R.a4,
             y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
-            field_model,
+            field_model_loader,
             stopped_cutoff,
         )
-        k5, _ = _rhs(
+        k5, _, paused5 = _rhs(
             t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
-            field_model,
+            field_model_loader,
             stopped_cutoff,
         )
-        k6, _ = _rhs(
+        k6, _, paused6 = _rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
-            field_model,
+            field_model_loader,
             stopped_cutoff,
         )
 
@@ -217,6 +224,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         k4 *= h_
         k5 *= h_
         k6 *= h_
+        paused = paused1 | paused2 | paused3 | paused4 | paused5 | paused6
 
         # Save incremented particles to history
         save_history = iter_count == 0 or (
@@ -236,7 +244,21 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         # Do runge-kutta step, check to change stopping state, and change step size
         # if step is performed
         num_iterated = _do_step(
-            k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config, stopped_cutoff
+            k1,
+            k2,
+            k3,
+            k4,
+            k5,
+            k6,
+            y,
+            h,
+            t,
+            t_final,
+            field_model_loader,
+            stopped,
+            paused,
+            config,
+            stopped_cutoff,
         )
 
         all_complete = cp.all(stopped)
@@ -304,7 +326,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     )
 
 
-def _rhs(t, y, field_model, stopped_cutoff):
+def _rhs(t, y, field_model_loader, stopped_cutoff):
     """RIght hand side of the guiding center equation differential equation.
 
     Parameters
@@ -313,7 +335,7 @@ def _rhs(t, y, field_model, stopped_cutoff):
       Dimensionalized time variable
     y: cupy array (nparticles,)
       ODE state variable
-    field_model: _DimensionalizedFieldModel
+    field_model_loader: FieldModelLoader
       Used to E and B fields and particles
     config: TraceConfig
       Tracing configuration
@@ -329,19 +351,20 @@ def _rhs(t, y, field_model, stopped_cutoff):
       `stopped_cutoff`.
     """
     # Get B, E Values and partials
-    interp_result = field_model.multi_interp(t, y, stopped_cutoff)
+    interp_result, paused = field_model_loader.multi_interp(t, y, stopped_cutoff)
 
     # Launch Kernel to handle rest of RHS
     arr_size = y.shape[0]
     grid_size = int(math.ceil(stopped_cutoff / BLOCK_SIZE))
 
-    r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
+    r_inner = cp.zeros(arr_size) + field_model_loader.axes.r_inner
     dydt = cp.zeros((arr_size, NSTATE))
 
     rhs_kernel[grid_size, BLOCK_SIZE](
         dydt,
         y[:stopped_cutoff],
         t,
+        paused,
         interp_result.Bx,
         interp_result.By,
         interp_result.Bz,
@@ -358,22 +381,36 @@ def _rhs(t, y, field_model, stopped_cutoff):
         interp_result.dBydz,
         interp_result.dBzdx,
         interp_result.dBzdy,
-        field_model.axes.x,
-        field_model.axes.y,
-        field_model.axes.z,
-        field_model.axes.t,
-        field_model.axes.x.size,
-        field_model.axes.y.size,
-        field_model.axes.z.size,
-        field_model.axes.t.size,
+        field_model_loader.axes.x,
+        field_model_loader.axes.y,
+        field_model_loader.axes.z,
+        field_model_loader.axes.t,
+        field_model_loader.axes.x.size,
+        field_model_loader.axes.y.size,
+        field_model_loader.axes.z.size,
+        field_model_loader.axes.t.size,
         r_inner,
     )
 
-    return dydt, interp_result.B
+    return dydt, interp_result.B, paused
 
 
 def _do_step(
-    k1, k2, k3, k4, k5, k6, y, h, t, t_final, field_model, stopped, config, stopped_cutoff
+    k1,
+    k2,
+    k3,
+    k4,
+    k5,
+    k6,
+    y,
+    h,
+    t,
+    t_final,
+    field_model_loader,
+    stopped,
+    paused,
+    config,
+    stopped_cutoff,
 ):
     """Do a Runge-Kutta Step.
 
@@ -384,7 +421,9 @@ def _do_step(
       h: current vector of step sizes
       t: current vector of particle times
       t_final: final time (dimensionalized)
-      field_model: instance of libgputrace.FieldModel
+      stopped: boolean array of whether integration has fully stopped
+      paused: boolean array of whether interpolation was skipped due to delayed loadeding
+      field_model: instance of FieldModelLoader
       stopped: boolean array of whether integration has stopped
     Returns
     --------
@@ -394,7 +433,7 @@ def _do_step(
     # Evaluate Stopping Conditions
     if config.stopping_conditions:
         for stop_cond in config.stopping_conditions:
-            stopped |= stop_cond(y, t, field_model)
+            stopped |= stop_cond(y, t, field_model_loader)
 
     # Nan signals some major problem in the code, better to stop immediately
     stopped |= cp.isnan(h)
@@ -406,7 +445,7 @@ def _do_step(
     z_next = cp.zeros(y.shape)
     rtol_arr = cp.zeros(arr_size) + config.rtol
     t_final_arr = cp.zeros(arr_size) + t_final
-    r_inner = cp.zeros(arr_size) + field_model.axes.r_inner
+    r_inner = cp.zeros(arr_size) + field_model_loader.axes.r_inner
     mask = cp.zeros(arr_size, dtype=bool)
 
     do_step_kernel[grid_size, BLOCK_SIZE](
@@ -425,14 +464,15 @@ def _do_step(
         t_final_arr,
         mask,
         stopped,
-        field_model.axes.x,
-        field_model.axes.x.size,
-        field_model.axes.y,
-        field_model.axes.y.size,
-        field_model.axes.z,
-        field_model.axes.z.size,
-        field_model.axes.t,
-        field_model.axes.t.size,
+        paused,
+        field_model_loader.axes.x,
+        field_model_loader.axes.x.size,
+        field_model_loader.axes.y,
+        field_model_loader.axes.y.size,
+        field_model_loader.axes.z,
+        field_model_loader.axes.z.size,
+        field_model_loader.axes.t,
+        field_model_loader.axes.t.size,
         r_inner,
         config.integrate_backwards,
     )

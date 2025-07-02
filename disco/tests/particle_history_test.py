@@ -2,7 +2,6 @@
 import numpy as np
 from astropy import units, constants
 from disco._particle_history import ParticleHistory
-import tempfile
 
 
 def test_particle_history_units():

@@ -9,6 +9,7 @@ def rhs_kernel(
     dydt_arr,
     y,
     t,
+    paused,
     Bx_arr,
     By_arr,
     Bz_arr,
@@ -46,7 +47,7 @@ def rhs_kernel(
     oob = False
 
     # Out of bounds check
-    if idx < y.shape[0]:
+    if idx < y.shape[0] and (not paused[idx]):
         oob = (
             y[idx, 0] < x_axis[0]
             or y[idx, 0] > x_axis[nx - 1]
@@ -59,7 +60,7 @@ def rhs_kernel(
             or (y[idx, 0] ** 2 + y[idx, 1] ** 2 + y[idx, 2] ** 2) ** 0.5 < r_inner[idx]
         )
 
-    if idx < y.shape[0] and not oob:
+    if idx < y.shape[0] and (not oob) and (not paused[idx]):
         # Pull variables out of arrays
         ppar = y[idx, 3]
         M = y[idx, 4]
@@ -137,6 +138,7 @@ def multi_interp_kernel(
     it,
     t,
     y,
+    paused,
     b0,
     r_inner,
     t_axis,
@@ -178,7 +180,7 @@ def multi_interp_kernel(
     oob = False
 
     # Out of bounds check
-    if idx < y.shape[0]:
+    if idx < y.shape[0] and (not paused[idx]):
         oob = (
             y[idx, 0] < x_axis[0]
             or y[idx, 0] > x_axis[nx - 1]
@@ -192,7 +194,7 @@ def multi_interp_kernel(
         )
 
     # Main body of the kernel
-    if idx < y.shape[0] and not oob:
+    if idx < y.shape[0] and (not oob) and (not paused[idx]):
         dx = x_axis[ix[idx] + 1] - x_axis[ix[idx]]
         dy = y_axis[iy[idx] + 1] - y_axis[iy[idx]]
         dz = z_axis[iz[idx] + 1] - z_axis[iz[idx]]
@@ -574,6 +576,7 @@ def do_step_kernel(
     t_final,
     mask,
     stopped,
+    paused,
     x_axis,
     nx,
     y_axis,
@@ -593,7 +596,7 @@ def do_step_kernel(
     R = RK45Coeffs
     nstate = 5
 
-    if idx < y.shape[0]:
+    if idx < y.shape[0] and (not paused[idx]) and (not stopped[idx]):
         # Compute thte total error in the position and momentum
         err_total = 0.0
         ynorm = 0.0

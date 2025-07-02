@@ -5,19 +5,6 @@ import h5py
 from matplotlib import pyplot as plt
 import numpy as np
 
-from disco._dimensionalization import (
-    undim_time,
-    undim_magnetic_field,
-    undim_space,
-    undim_energy,
-    undim_momentum,
-    dim_time,
-    dim_magnetic_moment,
-    dim_space,
-    dim_energy,
-    dim_momentum,
-)
-
 # Units for when variables are stored on disk
 TIME_UNITS = units.s
 SPACE_UNITS = constants.R_earth
