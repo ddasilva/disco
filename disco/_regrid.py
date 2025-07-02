@@ -95,10 +95,6 @@ def regrid_pointcloud(
         cp.sum(cp.array(Ez_pc)[I] * weights, axis=1).get().reshape(X.shape)
     )
 
-    import pdb
-
-    pdb.set_trace()
-
     # Create FieldModel instance
     axes = Axes(
         xaxis * constants.R_earth,
@@ -141,9 +137,9 @@ def get_new_grid(t):
             f"{TARGET_GRID}/grid{dim}.txt", sep="\\s+", names=[dim, "delta", "unused2"], skiprows=1
         )
 
-    xaxis = -dfs["x"].x[::-1]
-    yaxis = dfs["y"].y
-    zaxis = dfs["z"].z
+    xaxis = -dfs["x"].x[::-1].values
+    yaxis = dfs["y"].y.values
+    zaxis = dfs["z"].z.values
     taxis = np.array([t])
 
     return xaxis, yaxis, zaxis, taxis
