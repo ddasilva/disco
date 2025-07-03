@@ -135,7 +135,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         Parameters
         ----------
         index: timestamp index, >= 0, and less then len(self)
-        
+
         Returns
         -------
         field_model: instance of FieldModel with one timestep
