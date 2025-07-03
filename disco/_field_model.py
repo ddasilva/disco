@@ -2,13 +2,12 @@
 from dataclasses import dataclass
 import math
 
+from astropy import units
 import cupy as cp
 
 from disco._dimensionalization import dim_magnetic_field, dim_electric_field
 from disco._kernels import multi_interp_kernel
 from disco.constants import BLOCK_SIZE, DEFAULT_B0
-
-from astropy import units
 
 
 class FieldModel:

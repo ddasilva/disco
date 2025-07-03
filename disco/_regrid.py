@@ -27,22 +27,22 @@ def regrid_pointcloud(
 
     Parameters
     ----------
-    x_pc, y_pc, z_pc: numpy array
-        Pointcloud XYZ positions in Re, no astropy units
+    x_pc, y_pc, z_pc: array with no units
+        Pointc loud XYZ positions in Re
     t: float
-        position in seconds to assign time axis
-    Bx_pc, By_pc, Bz_pc: numpy array
-        External magnetic field in units in nT, no astropy units
-    Ex_pc, Ey_pc, Ez_pc: numpy array
-        Electric field in units of mV/m, no astropy units
+        Time position in seconds, used to assign time axis
+    Bx_pc, By_pc, Bz_pc: array with no units
+        External magnetic field in units in nT
+    Ex_pc, Ey_pc, Ez_pc: array with no units
+        Electric field in units of mV/m
     k: int
-        Number of nearest neighbors to use
-    B0: quantity, units of magnetic field strength
+        Number of nearest neighbors to use.
+    B0: scalar with units of magnetic field strength
         Internal field model strength passed to FieldModel()
 
     Returns
     -------
-    FieldModel with one timestep set to the provided vaue of t
+    FieldModel with one timestep set to the provided value of t
     """
     # Get new grid axis
     xaxis, yaxis, zaxis, taxis = get_new_grid(t)

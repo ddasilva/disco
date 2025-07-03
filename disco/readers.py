@@ -1,7 +1,4 @@
-"""Classes to load FieldModel instances from various file formats.
-
-Classes in this module are subclasses of `FieldModel`.
-"""
+"""Classes to load field models from simulation output and files on disk."""
 from datetime import datetime
 import glob
 import os
@@ -24,7 +21,7 @@ class FieldModelDataset:
 
     See also
     --------
-    disco._field_model_loader.LazyFieldModelLoader
+    disco.LazyFieldModelLoader
     """
 
     def __init__(self):
@@ -35,7 +32,7 @@ class FieldModelDataset:
 
         Returns
         -------
-        timestamps: array with units of time, and size equal to len(self)
+        time_axis: array with units of time, and size equal to len(self)
         """
         raise NotImplementedError()
 
@@ -83,10 +80,9 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         timestamp_trim: int
             trim this many characters from end of filenames before parsing timestamp
         B0: quantity, units of magnetic field strength
-            Internal model for computing the electric from from -uxB
+            Internal model to use when computing the electric field from -uxB
         """
         self.B0 = B0
-
         self.cdf_files = glob.glob(glob_pattern)
         self.cdf_files.sort()
 
@@ -119,7 +115,8 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         """Get time axis with length equal to len(self)
 
         Returns
-            timestamps: array with units of time, and size equal to len(self)
+        -------
+        time_axis: array with units of time, and size equal to len(self)
         """
         return self.time_axis
 
@@ -127,17 +124,21 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         """Return length of the dataset in number of indices.
 
         Returns
-            length: integer number of timesteps
+        -------
+        length: integer number of timesteps
         """
         return len(self.cdf_files)
 
     def __getitem__(self, index):
         """Return field model for current index of the simulation dataset.
 
-        Args
-            index: timestamp index, >= 0, and less then len(self)
+        Parameters
+        ----------
+        index: timestamp index, >= 0, and less then len(self)
+        
         Returns
-            field_model: instance of FieldModel with one timestep
+        -------
+        field_model: instance of FieldModel with one timestep
         """
         cdf = pycdf.CDF(self.cdf_files[index])
 
