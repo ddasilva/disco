@@ -4,7 +4,9 @@ import math
 
 from astropy import units
 import cupy as cp
+import numpy as np
 
+from disco._axes import Axes
 from disco._dimensionalization import dim_magnetic_field, dim_electric_field
 from disco._kernels import multi_interp_kernel
 from disco.constants import BLOCK_SIZE, DEFAULT_B0
@@ -54,6 +56,46 @@ class FieldModel:
         self.B0 = B0
         self.axes = axes
         self.dimensionalized = False
+
+    def duplicate_in_time(self, time_axis=[-1, 1] * units.year):
+        """Duplicate the field model in time.
+
+        This is useful for tracing in a single time step without manually
+        duplicating the time axis.
+
+        Parameters
+        ----------
+        time_axis: array with units of time
+          Time axis values to use for duplication. The default is made
+          sufficiently large that it is unrealistic for a particle to
+          ever hit the time limit bounds.
+
+        Returns
+        -------
+        instance of FieldModel with duplicated time axis
+        """
+        nx, ny, nz, nt = self.Bx.shape
+
+        if nt != 1:
+            raise ValueError("Field model must have exactly one time step to duplicate in time.")
+
+        new_shape = (nx, ny, nz, 2)
+        Bx = np.zeros(new_shape) + self.Bx
+        By = np.zeros(new_shape) + self.By
+        Bz = np.zeros(new_shape) + self.Bz
+        Ex = np.zeros(new_shape) + self.Ex
+        Ey = np.zeros(new_shape) + self.Ey
+        Ez = np.zeros(new_shape) + self.Ez
+
+        # Create new axes with duplicated time axis
+        axes = Axes(
+            x=self.axes.x,
+            y=self.axes.y,
+            z=self.axes.z,
+            t=time_axis,
+            r_inner=self.axes.r_inner,
+        )
+        return FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes, self.B0)
 
     def dimensionalize(self, mass, charge):
         """Convert to a `DimensionalizedFieldModel` instance.

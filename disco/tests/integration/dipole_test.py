@@ -15,11 +15,7 @@ def _setup_field_model(charge=-1, backwards_time=False):
     x_axis = np.arange(-10, 10, grid_spacing) * constants.R_earth
     y_axis = np.arange(-10, 10, grid_spacing) * constants.R_earth
     z_axis = np.arange(-5, 5, grid_spacing) * constants.R_earth
-
-    if backwards_time:
-        t_axis = np.arange(-5, 2) * units.s
-    else:
-        t_axis = np.arange(-1, 5) * units.s
+    t_axis = np.array([0]) * units.s
 
     x_grid, y_grid, z_grid, t_grid = np.meshgrid(x_axis, y_axis, z_axis, t_axis, indexing="ij")
     r_inner = 1 * constants.R_earth
@@ -34,7 +30,7 @@ def _setup_field_model(charge=-1, backwards_time=False):
     Ey = np.zeros(Bx.shape) * units.mV / units.m
     Ez = np.zeros(Bx.shape) * units.mV / units.m
 
-    field_model = FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes)
+    field_model = FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes).duplicate_in_time()
 
     return field_model
 
