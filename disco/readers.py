@@ -15,6 +15,12 @@ from disco._field_model import FieldModel
 from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
 
 
+class InvalidReaderShapeError(Exception):
+    """Raised when an array in a file does not have the expected shape
+    of number of dimensions.
+    """
+
+
 class FieldModelDataset:
     """This is an abstract base class to provide lazy loading for simulation
     output.
@@ -67,6 +73,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         glob_pattern,
         timestamp_parser="3d__var_1_e%Y%m%d-%H%M%S",
         timestamp_trim=12,
+        t0=None,
         B0=DEFAULT_B0,
     ):
         """Create an instance of SwmfCdfFieldModelDataset
@@ -79,8 +86,25 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             datetime strptime pattern for parsing timestamps from filenames
         timestamp_trim: int
             trim this many characters from end of filenames before parsing timestamp
+        t0: datetime, optional
+            If provided, the timestamps will be relative to this time.
+            If not provided, the first timestamp in the dataset will be used as t0.
         B0: quantity, units of magnetic field strength
             Internal model to use when computing the electric field from -uxB
+
+        Notes
+        -----
+        The glob pattern must match at least 2 CDF files, and all files must
+        have the same timestamp format.
+        The timestamps are parsed from the filenames, so they must be in a format
+        that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
+
+        Raises
+        ------
+        ValueError
+            If the glob pattern matches non-CDF files.
+        FileNotFoundError
+            If the glob pattern does not match at least 2 CDF files.
         """
         self.B0 = B0
         self.cdf_files = glob.glob(glob_pattern)
@@ -92,7 +116,9 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
                 raise ValueError(f"Passed glob pattern that includes non-cdf file {repr(cdf_file)}")
 
         if not len(self.cdf_files) > 1:
-            raise ValueError("Need at least 2 CDF files to trace output")
+            raise FileNotFoundError(
+                "Need at least 2 CDF files to trace output. Glob pattern did not match enough files."
+            )
 
         # Get timestamps as datetime from the file names
         self.timestamps = []
@@ -104,9 +130,11 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
 
         # Precompute time axis
         self.time_axis = []
+        if t0 is None:
+            t0 = self.timestamps[0]
 
         for timestamp in self.timestamps:
-            time = (timestamp - self.timestamps[0]).total_seconds()
+            time = (timestamp - t0).total_seconds()
             self.time_axis.append(time)
 
         self.time_axis = np.array(self.time_axis) * units.s
@@ -195,12 +223,6 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             Ez.value,
             B0=self.B0,
         )
-
-
-class InvalidReaderShapeError(Exception):
-    """Raised when an array in a file does not have the expected shape
-    of number of dimensions.
-    """
 
 
 class GenericHdf5FieldModel(FieldModel):
