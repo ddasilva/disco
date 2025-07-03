@@ -36,6 +36,8 @@ class FieldModel:
           Electric Field Z component
         axes: Axes
           Grid information
+        B0: scalar with units, optional
+          Internal Dipole strength to add to external field interpolating.
         """
         # Check that units are valid to catch errors early
         Bx.to(units.nT)
