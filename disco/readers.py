@@ -92,19 +92,19 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         B0: quantity, units of magnetic field strength
             Internal model to use when computing the electric field from -uxB
 
-        Notes
-        -----
-        The glob pattern must match at least 2 CDF files, and all files must
-        have the same timestamp format.
-        The timestamps are parsed from the filenames, so they must be in a format
-        that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
-
         Raises
         ------
         ValueError
             If the glob pattern matches non-CDF files.
         FileNotFoundError
             If the glob pattern does not match at least 2 CDF files.
+            
+        Notes
+        -----
+        The glob pattern must match at least 2 CDF files, and all files must
+        have the same timestamp format.
+        The timestamps are parsed from the filenames, so they must be in a format
+        that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
         """
         self.B0 = B0
         self.cdf_files = glob.glob(glob_pattern)
