@@ -18,7 +18,7 @@ TARGET_RINNER = 2.5 * constants.R_earth
 
 
 def regrid_pointcloud(
-    x_pc, y_pc, z_pc, t, Bx_pc, By_pc, Bz_pc, Ex_pc, Ey_pc, Ez_pc, k=16, B0=DEFAULT_B0
+    x_pc, y_pc, z_pc, t, Bx_pc, By_pc, Bz_pc, Ex_pc, Ey_pc, Ez_pc, k=8, B0=DEFAULT_B0
 ):
     """
     Regrid pointcloud data using radial basis functions and k-NN.

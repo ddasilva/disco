@@ -15,6 +15,7 @@ from disco import Axes
 from disco.constants import DEFAULT_B0
 from disco._regrid import regrid_pointcloud
 from disco._field_model import FieldModel
+from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
 
 
 class FieldModelDataset:
@@ -109,8 +110,10 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         self.time_axis = []
 
         for timestamp in self.timestamps:
-            time = (timestamp - self.timestamps[0]).total_seconds() * units.s
+            time = (timestamp - self.timestamps[0]).total_seconds()
             self.time_axis.append(time)
+
+        self.time_axis = np.array(self.time_axis) * units.s
 
     def get_time_axis(self):
         """Get time axis with length equal to len(self)

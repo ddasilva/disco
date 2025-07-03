@@ -21,7 +21,7 @@ from disco._dimensionalization import (
     undim_magnetic_moment,
 )
 from disco._field_model import FieldModel
-from disco._field_model_loader import FieldModelLoader, StaticFieldModelLoader
+from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
 from disco._particle_history import ParticleHistory
 from disco._kernels import do_step_kernel, rhs_kernel
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
