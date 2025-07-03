@@ -18,7 +18,6 @@ class FieldModel:
     def __init__(self, Bx, By, Bz, Ex, Ey, Ez, axes, B0=DEFAULT_B0):
         """Get an instance that is dimensionalized and stored on the GPU.
 
-        mass is not part of field model, but is used to redimensionalize.
         Input argument should have astropy units attached.
 
         Parameters
