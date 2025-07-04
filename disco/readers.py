@@ -78,6 +78,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         B0=DEFAULT_B0,
         r_inner=2.5 * constants.R_earth,
         verbose=1,
+        grid_downsample=2,
     ):
         """Create an instance of SwmfCdfFieldModelDataset
 
@@ -96,6 +97,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             Internal model to use when computing the electric field from -uxB
         verbose: int
             Verbosity level for output. Set to 0 for no output
+        
         Raises
         ------
         ValueError
@@ -112,6 +114,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         """
         self.B0 = B0
         self.r_inner = r_inner
+        self.grid_downsample = grid_downsample
         self.verbose = verbose
 
         # Get all CDF files matching the glob pattern
@@ -236,6 +239,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             y[mask].to(constants.R_earth).value,
             z[mask].to(constants.R_earth).value,
             pointcloud_fields,
+            grid_downsample=self.grid_downsample,
         )
         end_time = time.time() 
 

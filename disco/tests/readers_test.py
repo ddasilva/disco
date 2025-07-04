@@ -70,10 +70,13 @@ def test_swmf_cdf_dataset_time_axis():
     assert dataset.get_time_axis()[0] == 0 * units.s, "First timestamp should be zero"
 
 
+@pytest.mark.slow
 def test_swmf_cdf_getitem():
     """Tests loading a SWMF CDF file using the Dataset's __getitem__ method."""
     swmf_cdf_file = testing_utils.get_swmf_cdf_file()
-    dataset = SwmfCdfFieldModelDataset(swmf_cdf_file)
+
+    # Use a very downsampled grid for testing to make tests go faster
+    dataset = SwmfCdfFieldModelDataset(swmf_cdf_file, grid_downsample=8, verbose=0)
 
     # Get first item
     field_model = dataset[0]
@@ -81,15 +84,27 @@ def test_swmf_cdf_getitem():
     assert isinstance(field_model, FieldModel), "Should return a FieldModel instance"
     assert field_model.axes.t.size == 1
     assert field_model.axes.t == 0 * units.s, "Time axis should be zero for first item"
-    assert field_model.Bx.shape == (511, 152, 152, 1)
+    assert field_model.Bx.shape == (64, 19, 19, 1)
 
     # Get standard deviations of B field components for regridding regressions
     B_std_got = [field_model.Bx.std(), field_model.By.std(), field_model.Bz.std()]
-    B_std_expected = [0.00273808 * units.nT, 0.00109781 * units.nT, 0.00165451 * units.nT]
+    B_std_expected = [1.29673669 * units.nT, 0.71844024 * units.nT, 0.87466463 * units.nT]
     B_std_threshold = 1e-4 * units.nT
 
     for got, expected in zip(B_std_got, B_std_expected):
         assert np.abs(got - expected) < B_std_threshold, f"Field model B field std should match expected value: {got} != {expected}"
+
+    # Get standard deviations of E field components for regridding regressions
+    E_std_got = [field_model.Ex.std(), field_model.Ey.std(), field_model.Ez.std()]
+    E_std_expected = [
+        0.00412988 * units.mV/units.m,
+        0.0034817 * units.mV/units.m,
+        0.01345428 * units.mV/units.m,
+    ] 
+    E_std_threshold = 1e-4 * units.mV/units.m
+
+    for got, expected in zip(E_std_got, E_std_expected):
+        assert np.abs(got - expected) < E_std_threshold, f"Field model E field std should match expected value: {got} != {expected}"
 
 
 def test_swmf_cdf_dataset_invalid_glob():
