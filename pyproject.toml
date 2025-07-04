@@ -36,7 +36,8 @@ dev = [
   'pytest-cov',
   'black==22.10.0',
   'flake8>=5.0.4',
-  'coverage[toml]'
+  'coverage[toml]',
+  'requests>=2.32.4',
 ]
 
 docs = [

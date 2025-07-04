@@ -50,7 +50,7 @@ class FieldModel:
 
         self.Bx = Bx
         self.By = By
-        self.Bz = Bx
+        self.Bz = Bz
         self.Ex = Ex
         self.Ey = Ey
         self.Ez = Ez

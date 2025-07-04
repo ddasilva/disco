@@ -98,10 +98,10 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             If the glob pattern matches non-CDF files.
         FileNotFoundError
             If the glob pattern does not match at least 2 CDF files.
-            
+
         Notes
         -----
-        The glob pattern must match at least 2 CDF files, and all files must
+        The glob pattern must match at least one CDF files, and all files must
         have the same timestamp format.
         The timestamps are parsed from the filenames, so they must be in a format
         that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
@@ -115,9 +115,9 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             if not cdf_file.lower().endswith(".cdf"):
                 raise ValueError(f"Passed glob pattern that includes non-cdf file {repr(cdf_file)}")
 
-        if not len(self.cdf_files) > 1:
+        if not len(self.cdf_files) > 0:
             raise FileNotFoundError(
-                "Need at least 2 CDF files to trace output. Glob pattern did not match enough files."
+                "Glob pattern did not match any files."
             )
 
         # Get timestamps as datetime from the file names
@@ -190,27 +190,27 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         Bz = Bz_dipole + Bz_external
 
         # Load Flow Velocity as pointcloud
-        ux = cdf["ux"][:].squeeze() * units.km / units.s
-        uy = cdf["uy"][:].squeeze() * units.km / units.s
-        uz = cdf["uz"][:].squeeze() * units.km / units.s
+        ux = cdf["ux"][:].squeeze() * constants.R_earth / units.s
+        uy = cdf["uy"][:].squeeze() * constants.R_earth / units.s
+        uz = cdf["uz"][:].squeeze() * constants.R_earth / units.s
 
-        cdf.close()
+        #cdf.close()
 
         # Load Electric field as pointcloud
-        Ex, Ey, Ez = -np.cross([ux, uy, uz], [Bx, By, Bz], axis=0)
+        Ex, Ey, Ez = -np.cross([ux.value, uy.value, uz.value], [Bx.value, By.value, Bz.value], axis=0)
 
         E_units = Bx.unit * ux.unit
         Ex *= E_units
         Ey *= E_units
         Ez *= E_units
 
-        better_units = units.mV / units.m
+        better_units = units.nV / units.m
         Ex = Ex.to(better_units)
         Ey = Ey.to(better_units)
         Ez = Ez.to(better_units)
 
         # Perform regridding
-        return regrid_pointcloud(
+        field_model = regrid_pointcloud(
             x.value,
             y.value,
             z.value,
@@ -223,6 +223,8 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             Ez.value,
             B0=self.B0,
         )
+
+        return field_model
 
 
 class GenericHdf5FieldModel(FieldModel):

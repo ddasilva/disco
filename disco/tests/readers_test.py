@@ -8,7 +8,9 @@ import h5py
 import numpy as np
 import pytest
 
+from disco import FieldModel
 from disco.readers import GenericHdf5FieldModel, InvalidReaderShapeError, SwmfCdfFieldModelDataset
+from disco.tests import testing_utils
 
 
 def create_swmf_directory():
@@ -66,6 +68,28 @@ def test_swmf_cdf_dataset_time_axis():
 
     # Check that the first timestamp is zero
     assert dataset.get_time_axis()[0] == 0 * units.s, "First timestamp should be zero"
+
+
+def test_swmf_cdf_getitem():
+    """Tests loading a SWMF CDF file using the Dataset's __getitem__ method."""
+    swmf_cdf_file = testing_utils.get_swmf_cdf_file()
+    dataset = SwmfCdfFieldModelDataset(swmf_cdf_file)
+
+    # Get first item
+    field_model = dataset[0]
+
+    assert isinstance(field_model, FieldModel), "Should return a FieldModel instance"
+    assert field_model.axes.t.size == 1
+    assert field_model.axes.t == 0 * units.s, "Time axis should be zero for first item"
+    assert field_model.Bx.shape == (511, 152, 152, 1)
+
+    # Get standard deviations of B field components for regridding regressions
+    B_std_got = [field_model.Bx.std(), field_model.By.std(), field_model.Bz.std()]
+    B_std_expected = [0.00273808 * units.nT, 0.00109781 * units.nT, 0.00165451 * units.nT]
+    B_std_threshold = 1e-4 * units.nT
+
+    for got, expected in zip(B_std_got, B_std_expected):
+        assert np.abs(got - expected) < B_std_threshold, f"Field model B field std should match expected value: {got} != {expected}"
 
 
 def test_swmf_cdf_dataset_invalid_glob():

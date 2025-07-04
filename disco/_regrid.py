@@ -34,7 +34,7 @@ def regrid_pointcloud(
     Bx_pc, By_pc, Bz_pc: array with no units
         External magnetic field in units in nT
     Ex_pc, Ey_pc, Ez_pc: array with no units
-        Electric field in units of mV/m
+        Electric field in units of nV/m
     k: int
         Number of nearest neighbors to use.
     B0: scalar with units of magnetic field strength
@@ -107,9 +107,9 @@ def regrid_pointcloud(
         regrid_data["Bx"] * units.nT,
         regrid_data["By"] * units.nT,
         regrid_data["Bz"] * units.nT,
-        regrid_data["Ex"] * units.mV / units.m,
-        regrid_data["Ey"] * units.mV / units.m,
-        regrid_data["Ez"] * units.mV / units.m,
+        regrid_data["Ex"] * units.nV / units.m,
+        regrid_data["Ey"] * units.nV / units.m,
+        regrid_data["Ez"] * units.nV / units.m,
         axes,
         B0=B0,
     )
