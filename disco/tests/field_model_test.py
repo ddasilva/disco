@@ -154,8 +154,8 @@ def create_test_hdf5_file(nx=2, ny=2, nz=2, nt=2):
     return hdf_path
 
 
-def test_generic_hdf5_field_model_loads():
-    """Test that GenericHdf5FieldModel loads data from HDF5 and sets units correctly."""
+def test_field_model_loads():
+    """Test that FieldModel loads data from HDF5 and sets units correctly."""
     hdf_path = create_test_hdf5_file()
     model = FieldModel.load(hdf_path.name)
 
@@ -179,7 +179,7 @@ def test_generic_hdf5_field_model_loads():
     hdf_path.close()
 
 
-def test_generic_hdf5_field_model_units():
+def test_field_model_loads_units():
     """Test that FieldModel.load applies correct astropy units."""
     # Create a temporary HDF5 file and load it
     hdf_path = create_test_hdf5_file()

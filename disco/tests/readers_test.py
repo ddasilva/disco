@@ -4,12 +4,11 @@ import os
 import tempfile
 
 from astropy import units
-import h5py
 import numpy as np
 import pytest
 
 from disco import FieldModel
-from disco.readers import GenericHdf5FieldModel, InvalidReaderShapeError, SwmfCdfFieldModelDataset
+from disco.readers import SwmfCdfFieldModelDataset
 from disco.tests import testing_utils
 
 
@@ -71,12 +70,31 @@ def test_swmf_cdf_dataset_time_axis():
 
 
 @pytest.mark.slow
+def test_swmf_cdf_dataset_cache_dir():
+    """Test that the cache directory is created and used correctly."""
+    temp_dir = tempfile.TemporaryDirectory()
+    swmf_cdf_file = testing_utils.get_swmf_cdf_file()
+
+    # Use a very downsampled grid for testing to make tests go faster
+    dataset = SwmfCdfFieldModelDataset(
+        swmf_cdf_file, cache_regrid=True, grid_downsample=8, cache_regrid_dir=temp_dir.name
+    )
+
+    cache_file = dataset.get_cache_file(0)
+    dataset[0]
+    assert os.path.exists(cache_file), "Cache file should be created"
+    assert len(os.listdir(temp_dir.name)) >= 0, "Cache directory should not be empty"
+
+
+@pytest.mark.slow
 def test_swmf_cdf_getitem():
     """Tests loading a SWMF CDF file using the Dataset's __getitem__ method."""
     swmf_cdf_file = testing_utils.get_swmf_cdf_file()
 
     # Use a very downsampled grid for testing to make tests go faster
-    dataset = SwmfCdfFieldModelDataset(swmf_cdf_file, grid_downsample=8, verbose=0)
+    dataset = SwmfCdfFieldModelDataset(
+        swmf_cdf_file, grid_downsample=8, cache_regrid=False, verbose=0
+    )
 
     # Get first item
     field_model = dataset[0]

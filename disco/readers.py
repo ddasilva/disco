@@ -16,12 +16,6 @@ from disco._field_model import FieldModel
 from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
 
 
-class InvalidReaderShapeError(Exception):
-    """Raised when an array in a file does not have the expected shape
-    of number of dimensions.
-    """
-
-
 class FieldModelDataset:
     """This is an abstract base class to provide lazy loading for simulation
     output.
@@ -75,6 +69,8 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         timestamp_parser="3d__var_1_e%Y%m%d-%H%M%S",
         timestamp_trim=12,
         t0=None,
+        cache_regrid=True,
+        cache_regrid_dir="same_dir",
         B0=DEFAULT_B0,
         r_inner=2.5 * constants.R_earth,
         verbose=1,
@@ -93,6 +89,12 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         t0: datetime, optional
             If provided, the timestamps will be relative to this time.
             If not provided, the first timestamp in the dataset will be used as t0.
+        cache_regrid: bool
+            If True, the regridded data will be cached on disk for faster access
+            If False, the regridding will be done every time __getitem__ is called.
+        cache_regrid_dir: str
+            Directory to cache regridded data. If 'same_dir', it will use the same directory as
+            the CDF files.
         B0: quantity, units of magnetic field strength
             Internal model to use when computing the electric field from -uxB
         verbose: int
@@ -116,6 +118,13 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         self.r_inner = r_inner
         self.grid_downsample = grid_downsample
         self.verbose = verbose
+        self.cache_regrid = cache_regrid
+
+        if cache_regrid_dir == "same_dir":
+            # Use the same directory as the CDF files for caching
+            self.cache_regrid_dir = os.path.dirname(glob_pattern)
+        else:
+            self.cache_regrid_dir = cache_regrid_dir
 
         # Get all CDF files matching the glob pattern
         self.cdf_files = glob.glob(glob_pattern)
@@ -166,6 +175,24 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         """
         return len(self.cdf_files)
 
+    def get_cache_file(self, index):
+        """Get the cache file path for the given index.
+
+        Parameters
+        ----------
+        index: int
+            Index of the CDF file to get the cache file for.
+
+        Returns
+        -------
+        cache_file: str
+            Path to the cache file.
+        """
+        return os.path.join(
+            self.cache_regrid_dir,
+            os.path.basename(self.cdf_files[index]).replace(".cdf", "_regrid.h5"),
+        )
+
     def __getitem__(self, index):
         """Return field model for current index of the simulation dataset.
 
@@ -177,6 +204,16 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         -------
         field_model: instance of FieldModel with one timestep
         """
+        # Use cached file is enabled and available
+        cache_file = self.get_cache_file(index)
+
+        if self.cache_regrid:
+            if os.path.exists(cache_file):
+                if self.verbose > 0:
+                    print(f"Loading cached regridded data from {cache_file}")
+                return FieldModel.load(cache_file)
+
+        # Load CDF file
         cdf = pycdf.CDF(self.cdf_files[index])
 
         # Load XYZ Positoins
@@ -262,94 +299,8 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             B0=self.B0,
         )
 
+        # Save regridded data to cache if enabled
+        if self.cache_regrid:
+            field_model.save(cache_file)
+
         return field_model
-
-
-class GenericHdf5FieldModel(FieldModel):
-    """Create a field model from values loaded out of an HDF5 file.
-
-    Requires HDF5 variables:
-    * `Bx`: shape (nx, ny, nz, nt), units nT
-    * `By`: shape (nx, ny, nz, nt), units nT
-    * `Bz`: shape (nx, ny, nz, nt), units nT
-    * `Ex`: shape (nx, ny, nz, nt), units mV/m
-    * `Ey`: shape (nx, ny, nz, nt), units mV/m
-    * `Ez`: shape (nx, ny, nz, nt), units mV/m
-    * `xaxis`: shape (nx,), units Re
-    * `yaxis`: shape (ny,), units Re
-    * `zaxis`: shape (nz,), units Re
-    * `taxis`: shape (nt,), units seconds
-    * `r_inner`: scalar, units Re
-
-    Notes
-    * B values must have the dipole subtracted (also known as
-      being the "external" model)
-    * Any NaN's encoutered will halt integration immediately,
-      so they can be used to place irregular outer boundaries.
-    """
-
-    def __init__(self, hdf5_path, B0=DEFAULT_B0):
-        """Load a `FieldModel` from a HDF5 file.
-
-        Parameters
-        ----------
-        hdf_path: str
-           Path to HDF5 File
-        B0: Quantity, units of magnetic field strength
-           Dipole intensity
-        """
-        # Read data from HDF5 file
-        hdf_file = h5py.File(hdf5_path, "r")
-
-        Bx = hdf_file["Bx"][:] * units.nT
-        By = hdf_file["By"][:] * units.nT
-        Bz = hdf_file["Bz"][:] * units.nT
-        Ex = hdf_file["Ex"][:] * units.mV / units.m
-        Ey = hdf_file["Ey"][:] * units.mV / units.m
-        Ez = hdf_file["Ez"][:] * units.mV / units.m
-        xaxis = hdf_file["xaxis"][:] * units.R_earth
-        yaxis = hdf_file["yaxis"][:] * units.R_earth
-        zaxis = hdf_file["zaxis"][:] * units.R_earth
-        taxis = hdf_file["taxis"][:] * units.s
-        r_inner = hdf_file["r_inner"][()] * units.R_earth
-
-        hdf_file.close()
-
-        # Check shapes
-        self._check_shapes(Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis)
-
-        # Create axes instance
-        axes = Axes(xaxis, yaxis, zaxis, taxis, r_inner)
-
-        # Use parent constructor
-        super().__init__(Bx, By, Bz, Ex, Ey, Ez, axes, B0=B0)
-
-    def _check_shapes(self, Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis):
-        """Check that the shapes of the arrays match expected dimensions.
-
-        Raises
-        ------
-        InvalidReaderShapeError
-            If any array does not have the expected shap or number of dimensions.
-        """
-        # The the ndims of the 1D axis arrays
-        expected_ndims = 1
-        arrays = [xaxis, yaxis, zaxis, taxis]
-        array_names = ["xaxis", "yaxis", "zaxis", "taxis"]
-
-        for arr, name in zip(arrays, array_names):
-            if len(arr.shape) != expected_ndims:
-                raise InvalidReaderShapeError(
-                    f"{name} has shape {arr.shape}, expected {expected_ndims} dimsensions"
-                )
-
-        # Check the shape of the 4D field arrays
-        expected_shape = (xaxis.shape[0], yaxis.shape[0], zaxis.shape[0], taxis.shape[0])
-        arrays = [Bx, By, Bz, Ex, Ey, Ez]
-        array_names = ["Bx", "By", "Bz", "Ex", "Ey", "Ez"]
-
-        for arr, name in zip(arrays, array_names):
-            if arr.shape != expected_shape:
-                raise InvalidReaderShapeError(
-                    f"{name} has shape {arr.shape}, expected {expected_shape}" " (nx, ny, nz, nt)"
-                )
