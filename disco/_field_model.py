@@ -4,8 +4,10 @@ import math
 
 from astropy import units
 import cupy as cp
+import h5py
 import numpy as np
 
+from disco import constants
 from disco._axes import Axes
 from disco._dimensionalization import dim_magnetic_field, dim_electric_field
 from disco._kernels import multi_interp_kernel
@@ -113,6 +115,133 @@ class FieldModel:
         instance of `DimensionalizedFieldModel`
         """
         return DimensionalizedFieldModel(self, mass, charge)
+
+    def save(self, hdf_path):
+        """Save the FieldModel to an HDF5 file. Can be loaded with the FieldModel.load() method.
+
+        Parameters
+        ----------
+        hdf5_path: str
+            Path to the HDF5 file to save to.
+        """
+        B_units = units.nT
+        E_units = units.mV / units.m
+        space_units = constants.R_earth
+        time_units = units.s
+
+        with h5py.File(hdf_path, "w") as hdf_file:
+            hdf_file.create_dataset("Bx", data=self.Bx.to(B_units).value)
+            hdf_file.create_dataset("By", data=self.By.to(B_units).value)
+            hdf_file.create_dataset("Bz", data=self.Bz.to(B_units).value)
+            hdf_file.create_dataset("Ex", data=self.Ex.to(E_units).value)
+            hdf_file.create_dataset("Ey", data=self.Ey.to(E_units).value)
+            hdf_file.create_dataset("Ez", data=self.Ez.to(E_units).value)
+            hdf_file.create_dataset("xaxis", data=self.axes.x.to(space_units).value)
+            hdf_file.create_dataset("yaxis", data=self.axes.y.to(space_units).value)
+            hdf_file.create_dataset("zaxis", data=self.axes.z.to(space_units).value)
+            hdf_file.create_dataset("taxis", data=self.axes.t.to(time_units).value)
+
+            # Save r_inner as a scalar
+            hdf_file.create_dataset("r_inner", data=self.axes.r_inner.to(space_units).value)
+
+    @classmethod
+    def load(cls, hdf_path, B0=DEFAULT_B0):
+        """Load a FieldModel from an HDF5 file.
+
+        Parameters
+        ----------
+        hdf5_path: str
+            Path to the HDF5 file to load from.
+        B0: scalar with units, optional
+          Internal Dipole strength to add to external field interpolating.
+
+        Returns
+        -------
+        FieldModel
+            An instance of FieldModel loaded from the HDF5 file.
+
+        Raises
+        ------
+        ValueError
+            If the shapes of the arrays in the HDF5 file do not match expected dimensions.
+
+        Notes
+        -----
+        Requires HDF5 variables:
+        * `Bx`: shape (nx, ny, nz, nt), units nT
+        * `By`: shape (nx, ny, nz, nt), units nT
+        * `Bz`: shape (nx, ny, nz, nt), units nT
+        * `Ex`: shape (nx, ny, nz, nt), units mV/m
+        * `Ey`: shape (nx, ny, nz, nt), units mV/m
+        * `Ez`: shape (nx, ny, nz, nt), units mV/m
+        * `xaxis`: shape (nx,), units Re
+        * `yaxis`: shape (ny,), units Re
+        * `zaxis`: shape (nz,), units Re
+        * `taxis`: shape (nt,), units seconds
+        * `r_inner`: scalar, units Re
+
+        Additional comments:
+        * B values must have the dipole subtracted (also known as
+          being the "external" model)
+        * Any NaN's encoutered will halt integration immediately,
+          so they can be used to place irregular outer boundaries.
+        """
+        # Read data from HDF5 file
+        hdf_file = h5py.File(hdf_path, "r")
+
+        Bx = hdf_file["Bx"][:] * units.nT
+        By = hdf_file["By"][:] * units.nT
+        Bz = hdf_file["Bz"][:] * units.nT
+        Ex = hdf_file["Ex"][:] * units.mV / units.m
+        Ey = hdf_file["Ey"][:] * units.mV / units.m
+        Ez = hdf_file["Ez"][:] * units.mV / units.m
+        xaxis = hdf_file["xaxis"][:] * units.R_earth
+        yaxis = hdf_file["yaxis"][:] * units.R_earth
+        zaxis = hdf_file["zaxis"][:] * units.R_earth
+        taxis = hdf_file["taxis"][:] * units.s
+        r_inner = hdf_file["r_inner"][()] * units.R_earth
+
+        hdf_file.close()
+
+        # Check shapes
+        cls._check_shapes(Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis)
+
+        # Create axes instance
+        axes = Axes(xaxis, yaxis, zaxis, taxis, r_inner)
+
+        # Use class constructor
+        return cls(Bx, By, Bz, Ex, Ey, Ez, axes, B0=B0)
+
+    @classmethod
+    def _check_shapes(cls, Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis):
+        """Check that the shapes of the arrays match expected dimensions.
+
+        Raises
+        ------
+        ValueError
+            If any array does not have the expected shap or number of dimensions.
+        """
+        # The the ndims of the 1D axis arrays
+        expected_ndims = 1
+        arrays = [xaxis, yaxis, zaxis, taxis]
+        array_names = ["xaxis", "yaxis", "zaxis", "taxis"]
+
+        for arr, name in zip(arrays, array_names):
+            if len(arr.shape) != expected_ndims:
+                raise ValueError(
+                    f"{name} has shape {arr.shape}, expected {expected_ndims} dimsensions"
+                )
+
+        # Check the shape of the 4D field arrays
+        expected_shape = (xaxis.shape[0], yaxis.shape[0], zaxis.shape[0], taxis.shape[0])
+        arrays = [Bx, By, Bz, Ex, Ey, Ez]
+        array_names = ["Bx", "By", "Bz", "Ex", "Ey", "Ez"]
+
+        for arr, name in zip(arrays, array_names):
+            if arr.shape != expected_shape:
+                raise ValueError(
+                    f"{name} has shape {arr.shape}, expected {expected_shape}" " (nx, ny, nz, nt)"
+                )
 
 
 class DimensionalizedFieldModel:
