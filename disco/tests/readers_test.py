@@ -106,7 +106,7 @@ def test_swmf_cdf_getitem():
 
     # Get standard deviations of B field components for regridding regressions
     B_std_got = [field_model.Bx.std(), field_model.By.std(), field_model.Bz.std()]
-    B_std_expected = [1.29673669 * units.nT, 0.71844024 * units.nT, 0.87466463 * units.nT]
+    B_std_expected = [0.42733209 * units.nT, 0.56861531 * units.nT, 0.29186524 * units.nT]
     B_std_threshold = 1e-4 * units.nT
 
     for got, expected in zip(B_std_got, B_std_expected):
@@ -117,9 +117,9 @@ def test_swmf_cdf_getitem():
     # Get standard deviations of E field components for regridding regressions
     E_std_got = [field_model.Ex.std(), field_model.Ey.std(), field_model.Ez.std()]
     E_std_expected = [
-        0.00412988 * units.mV / units.m,
-        0.0034817 * units.mV / units.m,
-        0.01345428 * units.mV / units.m,
+        0.00159798 * units.mV / units.m,
+        0.00147571 * units.mV / units.m,
+        0.00332823 * units.mV / units.m,
     ]
     E_std_threshold = 1e-4 * units.mV / units.m
 

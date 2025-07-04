@@ -255,29 +255,27 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         better_E_units = units.mV / units.m
 
         # Perform regridding for B, using all points
-        mask = (Ex.value != 0) & (Ey.value != 0) & (Ez.value != 0)
-
-        pointcloud_fields = {
-            "Bx_external": Bx_external[mask].to(units.nT).value,
-            "By_external": By_external[mask].to(units.nT).value,
-            "Bz_external": Bz_external[mask].to(units.nT).value,
-            "Ex": Ex[mask].to(better_E_units).value,
-            "Ey": Ey[mask].to(better_E_units).value,
-            "Ez": Ez[mask].to(better_E_units).value,
+        point_cloud_fields = {
+            "Bx_external": Bx_external.to(units.nT).value,
+            "By_external": By_external.to(units.nT).value,
+            "Bz_external": Bz_external.to(units.nT).value,
+            "Ex": Ex.to(better_E_units).value,
+            "Ey": Ey.to(better_E_units).value,
+            "Ez": Ez.to(better_E_units).value,
         }
 
-        start_tiem = time.time()
+        start_time = time.time()
         xaxis, yaxis, zaxis, regrid_fields = regrid_pointcloud(
-            x[mask].to(constants.R_earth).value,
-            y[mask].to(constants.R_earth).value,
-            z[mask].to(constants.R_earth).value,
-            pointcloud_fields,
+            x.to(constants.R_earth).value,
+            y.to(constants.R_earth).value,
+            z.to(constants.R_earth).value,
+            point_cloud_fields,
             grid_downsample=self.grid_downsample,
         )
         end_time = time.time()
 
         if self.verbose > 0:
-            print(f"Regridding took {end_time - start_tiem:.2f} seconds")
+            print(f"Regridding took {end_time - start_time:.2f} seconds")
 
         # Create field model and axes instances
         axes = Axes(

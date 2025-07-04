@@ -1,10 +1,10 @@
 """Regridding tools for DISCO"""
 import os
 
-from cupyx.scipy.spatial import KDTree
-import cupy as cp
 import numpy as np
 import pandas as pd
+from scipy.spatial import KDTree
+
 
 # Location of target grid on disk and associated inner boundary for it
 CUR_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -17,7 +17,7 @@ def regrid_pointcloud(
     z_pc,
     point_cloud_fields,
     k=8,
-    grid_downsample=2,
+    grid_downsample=1,
 ):
     """
     Regrid pointcloud data using radial basis functions and k-NN.
@@ -40,20 +40,23 @@ def regrid_pointcloud(
     xaxis, yaxis, zaxis: 1D arrays with no units
     regrid_fields: dictionary with same keys as point_cloud_fields
     """
+    # Note to developers:
+    #   This was previously written using the KDTree from CuPy, but it was much less
+    #   efficient than the one from SciPy, so we switched to using SciPy's KDTree.
+
     # Get new grid axis
     xaxis, yaxis, zaxis = get_new_grid(grid_downsample)
     X, Y, Z = np.meshgrid(xaxis, yaxis, zaxis, indexing="ij")
 
     # Build KDTree from pointcloud and query at grid
-    tree_points = cp.array([x_pc, y_pc, z_pc]).T
-    query_points = cp.array([X.flatten(), Y.flatten(), Z.flatten()]).T
-
+    tree_points = np.array([x_pc, y_pc, z_pc]).T
+    query_points = np.array([X.flatten(), Y.flatten(), Z.flatten()]).T
     tree = KDTree(tree_points)
     d, I = tree.query(query_points, k=k)
 
     # Calculate scale of radial basis function gaussians
     scale = d.mean(axis=1)
-    scale_ = cp.zeros((scale.size, k))
+    scale_ = np.zeros((scale.size, k))
     for i in range(k):
         scale_[:, i] = scale
 
@@ -70,10 +73,9 @@ def regrid_pointcloud(
     for i in range(k):
         weights[:, i] /= norm
 
-    for key, np_input_array in point_cloud_fields.items():
-        cp_input_array = cp.array(np_input_array)
-        weighted_sum = cp.sum(cp_input_array[I] * weights, axis=1)
-        regrid_fields[key][:, :, :, 0] = weighted_sum.get().reshape(X.shape)
+    for key, input_array in point_cloud_fields.items():
+        weighted_sum = np.sum(input_array[I] * weights, axis=1)
+        regrid_fields[key][:, :, :, 0] = weighted_sum.reshape(X.shape)
 
     return xaxis, yaxis, zaxis, regrid_fields
 
