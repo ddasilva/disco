@@ -2,6 +2,7 @@
 from datetime import datetime
 import glob
 import os
+import time
 
 from astropy import constants, units
 import h5py
@@ -75,6 +76,8 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         timestamp_trim=12,
         t0=None,
         B0=DEFAULT_B0,
+        r_inner=2.5 * constants.R_earth,
+        verbose=1,
     ):
         """Create an instance of SwmfCdfFieldModelDataset
 
@@ -91,7 +94,8 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             If not provided, the first timestamp in the dataset will be used as t0.
         B0: quantity, units of magnetic field strength
             Internal model to use when computing the electric field from -uxB
-
+        verbose: int
+            Verbosity level for output. Set to 0 for no output
         Raises
         ------
         ValueError
@@ -107,6 +111,10 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
         """
         self.B0 = B0
+        self.r_inner = r_inner
+        self.verbose = verbose
+
+        # Get all CDF files matching the glob pattern
         self.cdf_files = glob.glob(glob_pattern)
         self.cdf_files.sort()
 
@@ -194,33 +202,63 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         uy = cdf["uy"][:].squeeze() * constants.R_earth / units.s
         uz = cdf["uz"][:].squeeze() * constants.R_earth / units.s
 
-        #cdf.close()
+        cdf.close()
 
         # Load Electric field as pointcloud
-        Ex, Ey, Ez = -np.cross([ux.value, uy.value, uz.value], [Bx.value, By.value, Bz.value], axis=0)
+        Ex, Ey, Ez = -np.cross(
+            [ux.value, uy.value, uz.value],
+            [Bx.value, By.value, Bz.value],
+            axis=0
+        )
 
         E_units = Bx.unit * ux.unit
         Ex *= E_units
         Ey *= E_units
         Ez *= E_units
 
-        better_units = units.nV / units.m
-        Ex = Ex.to(better_units)
-        Ey = Ey.to(better_units)
-        Ez = Ez.to(better_units)
+        better_E_units = units.mV / units.m
 
-        # Perform regridding
-        field_model = regrid_pointcloud(
-            x.value,
-            y.value,
-            z.value,
-            self.time_axis[index].value,
-            Bx_external,
-            By_external,
-            Bz_external,
-            Ex.value,
-            Ey.value,
-            Ez.value,
+        # Perform regridding for B, using all points
+        mask = (Ex.value != 0) & (Ey.value != 0) & (Ez.value != 0) 
+
+        pointcloud_fields = {
+            "Bx_external": Bx_external[mask].to(units.nT).value,
+            "By_external": By_external[mask].to(units.nT).value,
+            "Bz_external": Bz_external[mask].to(units.nT).value,
+            "Ex": Ex[mask].to(better_E_units).value,
+            "Ey": Ey[mask].to(better_E_units).value,
+            "Ez": Ez[mask].to(better_E_units).value,
+        }
+
+        start_tiem = time.time()
+        xaxis, yaxis, zaxis, regrid_fields = regrid_pointcloud(
+            x[mask].to(constants.R_earth).value,
+            y[mask].to(constants.R_earth).value,
+            z[mask].to(constants.R_earth).value,
+            pointcloud_fields,
+        )
+        end_time = time.time() 
+
+        if self.verbose > 0:
+            print(f"Regridding took {end_time - start_tiem:.2f} seconds")
+
+        # Create field model and axes instances
+        axes = Axes(
+            xaxis * constants.R_earth,
+            yaxis * constants.R_earth, 
+            zaxis * constants.R_earth, 
+            self.time_axis[[index]],
+            r_inner=self.r_inner
+        )
+
+        field_model = FieldModel(
+            regrid_fields["Bx_external"] * units.nT,
+            regrid_fields["By_external"] * units.nT,
+            regrid_fields["Bz_external"] * units.nT,
+            regrid_fields["Ex"] * better_E_units,
+            regrid_fields["Ey"] * better_E_units,
+            regrid_fields["Ez"] * better_E_units,
+            axes,
             B0=self.B0,
         )
 
