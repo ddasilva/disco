@@ -92,19 +92,23 @@ def test_swmf_cdf_getitem():
     B_std_threshold = 1e-4 * units.nT
 
     for got, expected in zip(B_std_got, B_std_expected):
-        assert np.abs(got - expected) < B_std_threshold, f"Field model B field std should match expected value: {got} != {expected}"
+        assert (
+            np.abs(got - expected) < B_std_threshold
+        ), f"Field model B field std should match expected value: {got} != {expected}"
 
     # Get standard deviations of E field components for regridding regressions
     E_std_got = [field_model.Ex.std(), field_model.Ey.std(), field_model.Ez.std()]
     E_std_expected = [
-        0.00412988 * units.mV/units.m,
-        0.0034817 * units.mV/units.m,
-        0.01345428 * units.mV/units.m,
-    ] 
-    E_std_threshold = 1e-4 * units.mV/units.m
+        0.00412988 * units.mV / units.m,
+        0.0034817 * units.mV / units.m,
+        0.01345428 * units.mV / units.m,
+    ]
+    E_std_threshold = 1e-4 * units.mV / units.m
 
     for got, expected in zip(E_std_got, E_std_expected):
-        assert np.abs(got - expected) < E_std_threshold, f"Field model E field std should match expected value: {got} != {expected}"
+        assert (
+            np.abs(got - expected) < E_std_threshold
+        ), f"Field model E field std should match expected value: {got} != {expected}"
 
 
 def test_swmf_cdf_dataset_invalid_glob():

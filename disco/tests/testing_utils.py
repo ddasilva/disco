@@ -6,16 +6,16 @@ import requests
 
 def get_file(path):
     """Downloads a testing file if not already on disk"""
-    url = f'https://danieldasilva.org/ci_files/disco/{path}'
-    
+    url = f"https://danieldasilva.org/ci_files/disco/{path}"
+
     cur_dir = os.path.dirname(os.path.abspath(__file__))
-    out_path = os.path.join(cur_dir, 'data', path)
+    out_path = os.path.join(cur_dir, "data", path)
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     if not os.path.exists(path):
         resp = requests.get(url)
-        with open(out_path, 'wb') as fh:
+        with open(out_path, "wb") as fh:
             fh.write(resp.content)
 
     return out_path

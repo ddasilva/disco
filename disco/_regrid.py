@@ -12,7 +12,12 @@ TARGET_GRID = os.path.join(CUR_DIRECTORY, "data/OpenGGCMGrids/overview_7M_now_11
 
 
 def regrid_pointcloud(
-    x_pc, y_pc, z_pc, point_cloud_fields, k=8, grid_downsample=2,
+    x_pc,
+    y_pc,
+    z_pc,
+    point_cloud_fields,
+    k=8,
+    grid_downsample=2,
 ):
     """
     Regrid pointcloud data using radial basis functions and k-NN.
@@ -42,7 +47,7 @@ def regrid_pointcloud(
     # Build KDTree from pointcloud and query at grid
     tree_points = cp.array([x_pc, y_pc, z_pc]).T
     query_points = cp.array([X.flatten(), Y.flatten(), Z.flatten()]).T
-    
+
     tree = KDTree(tree_points)
     d, I = tree.query(query_points, k=k)
 
@@ -80,7 +85,7 @@ def get_new_grid(grid_downsample):
     ----------
     grid_downsample: int
         Downsampling factor for the grid. Every `grid_downsample`-th point is used.
-    
+
     Returns
     -------
     xaxis, yaxis, zaxis, 1D arrays with units

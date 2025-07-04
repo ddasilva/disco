@@ -97,7 +97,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             Internal model to use when computing the electric field from -uxB
         verbose: int
             Verbosity level for output. Set to 0 for no output
-        
+
         Raises
         ------
         ValueError
@@ -127,9 +127,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
                 raise ValueError(f"Passed glob pattern that includes non-cdf file {repr(cdf_file)}")
 
         if not len(self.cdf_files) > 0:
-            raise FileNotFoundError(
-                "Glob pattern did not match any files."
-            )
+            raise FileNotFoundError("Glob pattern did not match any files.")
 
         # Get timestamps as datetime from the file names
         self.timestamps = []
@@ -209,9 +207,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
 
         # Load Electric field as pointcloud
         Ex, Ey, Ez = -np.cross(
-            [ux.value, uy.value, uz.value],
-            [Bx.value, By.value, Bz.value],
-            axis=0
+            [ux.value, uy.value, uz.value], [Bx.value, By.value, Bz.value], axis=0
         )
 
         E_units = Bx.unit * ux.unit
@@ -222,7 +218,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         better_E_units = units.mV / units.m
 
         # Perform regridding for B, using all points
-        mask = (Ex.value != 0) & (Ey.value != 0) & (Ez.value != 0) 
+        mask = (Ex.value != 0) & (Ey.value != 0) & (Ez.value != 0)
 
         pointcloud_fields = {
             "Bx_external": Bx_external[mask].to(units.nT).value,
@@ -241,7 +237,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
             pointcloud_fields,
             grid_downsample=self.grid_downsample,
         )
-        end_time = time.time() 
+        end_time = time.time()
 
         if self.verbose > 0:
             print(f"Regridding took {end_time - start_tiem:.2f} seconds")
@@ -249,10 +245,10 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         # Create field model and axes instances
         axes = Axes(
             xaxis * constants.R_earth,
-            yaxis * constants.R_earth, 
-            zaxis * constants.R_earth, 
+            yaxis * constants.R_earth,
+            zaxis * constants.R_earth,
             self.time_axis[[index]],
-            r_inner=self.r_inner
+            r_inner=self.r_inner,
         )
 
         field_model = FieldModel(
