@@ -6,6 +6,7 @@ import pytest
 from scipy.constants import elementary_charge
 
 from disco import TraceConfig, Axes, FieldModel, ParticleState, trace_trajectory
+from disco.tests.integration.integration_test_utils import setup_particle_state
 
 
 def _setup_field_model(charge=-1, backwards_time=False):
@@ -35,32 +36,6 @@ def _setup_field_model(charge=-1, backwards_time=False):
     return field_model
 
 
-def _setup_particle_state(
-    vtotal=0.5, pitch_angle=45, npart=10, pos_x=0, pos_y=0, pos_z=0, charge=-1
-):
-
-    pos_x = np.array([pos_x] * npart) * constants.R_earth
-    pos_y = np.array([pos_y] * npart) * constants.R_earth
-    pos_z = np.array([pos_z] * npart) * constants.R_earth
-
-    vtotal = vtotal * constants.c
-    gamma = 1 / np.sqrt(1 - (vtotal / constants.c) ** 2)
-
-    if charge < 0:
-        m = constants.m_e
-    else:
-        m = constants.m_p
-
-    pperp = np.ones(npart) * gamma * m * np.sin(np.deg2rad(pitch_angle)) * vtotal
-    ppar = np.ones(npart) * gamma * m * np.cos(np.deg2rad(pitch_angle)) * vtotal
-    magnetic_moment = gamma * pperp**2 / (2 * m * 100 * units.nT)
-    charge = charge * elementary_charge * units.C
-
-    particle_state = ParticleState(pos_x, pos_y, pos_z, ppar, magnetic_moment, m, charge)
-
-    return particle_state
-
-
 def test_bouncing_basic():
     """Tests bouncing a particle in the outer radiation belt."""
     config = TraceConfig(
@@ -70,7 +45,7 @@ def test_bouncing_basic():
         output_freq=None,
     )
     field_model = _setup_field_model()
-    particle_state = _setup_particle_state(pos_x=6.6)
+    particle_state = setup_particle_state(pos_x=6.6)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
@@ -108,7 +83,7 @@ def setup_plotting(output_freq):
         output_freq=output_freq,
     )
     field_model = _setup_field_model()
-    particle_state = _setup_particle_state(pos_x=6.6)
+    particle_state = setup_particle_state(pos_x=6.6)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
@@ -156,7 +131,7 @@ def test_bouncing_history():
         output_freq=1,
     )
     field_model = _setup_field_model()
-    particle_state = _setup_particle_state(pos_x=6.6)
+    particle_state = setup_particle_state(pos_x=6.6)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
@@ -188,7 +163,7 @@ def test_bouncing_stop_cond():
         stopping_conditions=[stop_cond],
     )
     field_model = _setup_field_model()
-    particle_state = _setup_particle_state(pos_x=6.6)
+    particle_state = setup_particle_state(pos_x=6.6)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
@@ -213,7 +188,7 @@ def test_oob_zmax():
         output_freq=None,
     )
     field_model = _setup_field_model()
-    particle_state = _setup_particle_state(pos_x=6.6)
+    particle_state = setup_particle_state(pos_x=6.6)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 
@@ -234,7 +209,7 @@ def test_oob_rinner():
         output_freq=None,
     )
     field_model = _setup_field_model()
-    particle_state = _setup_particle_state(pos_x=6.6, pitch_angle=0)
+    particle_state = setup_particle_state(pos_x=6.6, pitch_angle=0)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
     r = np.sqrt(hist.x**2 + hist.y**2 + hist.z**2).to(constants.R_earth)
@@ -300,7 +275,7 @@ def test_bouncing_integrate_backwards():
         integrate_backwards=True,
     )
     field_model = _setup_field_model(backwards_time=True)
-    particle_state = _setup_particle_state(pos_x=6.6, pitch_angle=0)
+    particle_state = setup_particle_state(pos_x=6.6, pitch_angle=0)
 
     hist = trace_trajectory(config, particle_state, field_model, verbose=0)
 

@@ -1,5 +1,5 @@
 """Classes to load field models from simulation output and files on disk."""
-from datetime import datetime
+from datetime import timedelta, datetime
 import glob
 import os
 import time
@@ -7,7 +7,7 @@ import time
 from astropy import constants, units
 import h5py
 import numpy as np
-from spacepy import pycdf
+from spacepy import pybats
 
 from disco import Axes
 from disco.constants import DEFAULT_B0
@@ -60,14 +60,12 @@ class FieldModelDataset:
         raise NotImplementedError()
 
 
-class SwmfCdfFieldModelDataset(FieldModelDataset):
-    """Subclass of FieldModelDataset for lazy loading of SWMF CDF Output"""
+class SwmfOutFieldModelDataset(FieldModelDataset):
+    """Subclass of FieldModelDataset for lazy loading of SWMF .out Output"""
 
     def __init__(
         self,
         glob_pattern,
-        timestamp_parser="3d__var_1_e%Y%m%d-%H%M%S",
-        timestamp_trim=12,
         t0=None,
         cache_regrid=True,
         cache_regrid_dir="same_dir",
@@ -76,19 +74,16 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         verbose=1,
         grid_downsample=2,
     ):
-        """Create an instance of SwmfCdfFieldModelDataset
+        """Create an instance of SwmfOutFieldModelDataset
 
         Parameters
         ----------
         glob_pattern: str
-            Pattern such as "/home/ubuntu/simulation_output/*.cdf"
-        timestamp_parser: str
-            datetime strptime pattern for parsing timestamps from filenames
-        timestamp_trim: int
-            trim this many characters from end of filenames before parsing timestamp
-        t0: datetime, optional
-            If provided, the timestamps will be relative to this time.
-            If not provided, the first timestamp in the dataset will be used as t0.
+            Pattern such as "/home/ubuntu/simulation_output/*.out"
+        t0: datetatime or scalar with units
+            Initial time for dataset. If filenames have a full date in them, pass a datetime
+            If filenames have a relative time, pass a scalar with units of time.
+            If None, the first timestamp in the globbed files will be used.
         cache_regrid: bool
             If True, the regridded data will be cached on disk for faster access
             If False, the regridding will be done every time __getitem__ is called.
@@ -103,14 +98,15 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         Raises
         ------
         ValueError
-            If the glob pattern matches non-CDF files.
+            If the glob pattern matches non .out files.
         FileNotFoundError
-            If the glob pattern does not match at least 2 CDF files.
+            If the glob pattern does not match any files.
 
         Notes
         -----
-        The glob pattern must match at least one CDF files, and all files must
+        The glob pattern must match at least one .out files, and all files must
         have the same timestamp format.
+
         The timestamps are parsed from the filenames, so they must be in a format
         that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
         """
@@ -121,41 +117,134 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         self.cache_regrid = cache_regrid
 
         if cache_regrid_dir == "same_dir":
-            # Use the same directory as the CDF files for caching
+            # Use the same directory as the .out files for caching
             self.cache_regrid_dir = os.path.dirname(glob_pattern)
         else:
             self.cache_regrid_dir = cache_regrid_dir
 
-        # Get all CDF files matching the glob pattern
-        self.cdf_files = glob.glob(glob_pattern)
-        self.cdf_files.sort()
+        # Get all .out files matching the glob pattern
+        self.out_files = glob.glob(glob_pattern)
+        self.out_files.sort()
 
-        # Check all files are CDF files
-        for cdf_file in self.cdf_files:
-            if not cdf_file.lower().endswith(".cdf"):
-                raise ValueError(f"Passed glob pattern that includes non-cdf file {repr(cdf_file)}")
+        # Check all files are .out files
+        for out_file in self.out_files:
+            if not out_file.lower().endswith(".out"):
+                raise ValueError(f"Passed glob pattern that includes non-out file {repr(out_file)}")
 
-        if not len(self.cdf_files) > 0:
+        if not len(self.out_files) > 0:
             raise FileNotFoundError("Glob pattern did not match any files.")
 
         # Get timestamps as datetime from the file names
-        self.timestamps = []
+        if "_e" in os.path.basename(self.out_files[0]):
+            self.time_axis = self._get_time_axis_absolute_times(t0)
+        elif "_t" in os.path.basename(self.out_files[0]):
+            self.time_axis = self._get_time_axis_relative_times(t0)
+        else:
+            raise ValueError(
+                "Unable to determine timestamp format from file names. "
+                "File names must contain '_e' for absolute times or '_t' for relative times."
+            )
 
-        for cdf_file in self.cdf_files:
-            time_str = os.path.basename(cdf_file[:-timestamp_trim])
-            timestamp = datetime.strptime(time_str, timestamp_parser)
-            self.timestamps.append(timestamp)
+    def _get_time_axis_absolute_times(self, t0):
+        """Parse absolute timestamps from file names and return time axis.
+
+        Parameters
+        ----------
+        t0: datetime or None
+            Initial time for the dataset. If None, the first timestamp in the files will be used.
+            If a datetime object, it should be naive (no timezone info).
+
+        Returns
+        -------
+        time_axis: array with units of time, and size equal to len(self)
+        """
+        timestamps = []
+
+        for out_file in self.out_files:
+            timestamp = None
+
+            for tok in os.path.basename(out_file).split("_"):
+                if tok.startswith("e") and len(tok) > 1:
+                    # Extract the timestamp part
+                    time_str = tok[1:]
+                    timestamp = datetime.strptime(time_str[:-8], "%Y%m%d-%H%M%S")
+                    break
+
+            if timestamp is None:
+                raise ValueError(f"Unable to parse timestamp from file name {out_file}")
+
+            timestamps.append(timestamp)
 
         # Precompute time axis
-        self.time_axis = []
+        time_axis = []
+
         if t0 is None:
-            t0 = self.timestamps[0]
+            t0 = timestamps[0]
+        elif isinstance(t0, datetime):
+            t0 = t0.replace(tzinfo=None)  # Ensure t0 is naive
+        else:
+            raise ValueError("t0 must be a datetime object or None.")
 
-        for timestamp in self.timestamps:
+        for timestamp in timestamps:
             time = (timestamp - t0).total_seconds()
-            self.time_axis.append(time)
+            time_axis.append(time)
 
-        self.time_axis = np.array(self.time_axis) * units.s
+        time_axis = np.array(time_axis) * units.s
+
+        return time_axis
+
+    def _get_time_axis_relative_times(self, t0):
+        """Parse relative times from file timestamps and return time axis
+
+        Parameters
+        ----------
+        t0: scalar with units of time or None
+            Initial time for the dataset. If None, the first timestamp in the files will be used.
+            If a scalar, it should have units of time (e.g., seconds).
+
+        Returns
+        -------
+        time_axis: array with units of time, and size equal to len(self)
+        """
+        timestamps = []
+
+        for out_file in self.out_files:
+            timestamp = None
+
+            for tok in os.path.basename(out_file).split("_"):
+                if tok.startswith("t") and len(tok) > 1:
+                    # Extract the timestamp part
+                    time_str = tok[1:]
+                    timestamp = timedelta(
+                        days=int(time_str[:2]),
+                        hours=int(time_str[2:4]),
+                        minutes=int(time_str[4:6]),
+                        seconds=int(time_str[6:8]),
+                    )
+                    break
+
+            if timestamp is None:
+                raise ValueError(f"Unable to parse timestamp from file name {out_file}")
+
+            timestamps.append(timestamp)
+
+        # Precompute time axis
+        time_axis = []
+
+        for timestamp in timestamps:
+            time = timestamp.total_seconds()
+            time_axis.append(time)
+
+        time_axis = np.array(time_axis) * units.s
+
+        if t0 is None:
+            time_axis -= time_axis[0]
+        elif isinstance(t0, units.Quantity):
+            time_axis -= t0
+        else:
+            raise ValueError("t0 must be a scalar with units of time or None.")
+
+        return time_axis
 
     def get_time_axis(self):
         """Get time axis with length equal to len(self)
@@ -173,7 +262,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         -------
         length: integer number of timesteps
         """
-        return len(self.cdf_files)
+        return len(self.out_files)
 
     def get_cache_file(self, index):
         """Get the cache file path for the given index.
@@ -181,7 +270,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         Parameters
         ----------
         index: int
-            Index of the CDF file to get the cache file for.
+            Index of the file to get the cache file for.
 
         Returns
         -------
@@ -190,7 +279,7 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
         """
         return os.path.join(
             self.cache_regrid_dir,
-            os.path.basename(self.cdf_files[index]).replace(".cdf", "_regrid.h5"),
+            os.path.basename(self.out_files[index]).replace(".out", "_disco.h5"),
         )
 
     def __getitem__(self, index):
@@ -214,33 +303,31 @@ class SwmfCdfFieldModelDataset(FieldModelDataset):
                 return FieldModel.load(cache_file)
 
         # Load CDF file
-        cdf = pycdf.CDF(self.cdf_files[index])
+        out_file = pybats.IdlFile(self.out_files[index])
 
-        # Load XYZ Positoins
-        x = cdf["x"][:].squeeze() * constants.R_earth
-        y = cdf["y"][:].squeeze() * constants.R_earth
-        z = cdf["z"][:].squeeze() * constants.R_earth
+        # Load XYZ Positions
+        x = out_file["x"][:].squeeze() * constants.R_earth
+        y = out_file["y"][:].squeeze() * constants.R_earth
+        z = out_file["z"][:].squeeze() * constants.R_earth
 
         # Load Magnetic Field as pointcloud
-        Bx_external = cdf["bx"][:].squeeze() * units.nT
-        By_external = cdf["by"][:].squeeze() * units.nT
-        Bz_external = cdf["bz"][:].squeeze() * units.nT
+        Bx = out_file["bx"][:].squeeze() * units.nT
+        By = out_file["by"][:].squeeze() * units.nT
+        Bz = out_file["bz"][:].squeeze() * units.nT
 
         r = np.sqrt(x**2 + y**2 + z**2).value
         Bx_dipole = 3 * x.value * z.value * self.B0 / r**5
         By_dipole = 3 * y.value * z.value * self.B0 / r**5
         Bz_dipole = (3 * z.value**2 - r**2) * self.B0 / r**5
 
-        Bx = Bx_dipole + Bx_external
-        By = By_dipole + By_external
-        Bz = Bz_dipole + Bz_external
+        Bx_external = Bx - Bx_dipole
+        By_external = By - By_dipole
+        Bz_external = Bz - Bz_dipole
 
         # Load Flow Velocity as pointcloud
-        ux = cdf["ux"][:].squeeze() * constants.R_earth / units.s
-        uy = cdf["uy"][:].squeeze() * constants.R_earth / units.s
-        uz = cdf["uz"][:].squeeze() * constants.R_earth / units.s
-
-        cdf.close()
+        ux = out_file["ux"][:].squeeze() * units.km / units.s
+        uy = out_file["uy"][:].squeeze() * units.km / units.s
+        uz = out_file["uz"][:].squeeze() * units.km / units.s
 
         # Load Electric field as pointcloud
         Ex, Ey, Ez = -np.cross(

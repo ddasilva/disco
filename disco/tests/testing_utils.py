@@ -21,6 +21,6 @@ def get_file(path):
     return out_path
 
 
-def get_swmf_cdf_file():
-    """Gets a single timestep of SWMF CDF data for testing."""
-    return get_file("swmf_test_data/3d__var_1_e20151202-050000-000.out.cdf")
+def get_swmf_out_file():
+    """Gets a single timestep of SWMF .out data for testing."""
+    return get_file("swmf_test_data3/3d__var_1_e19971010-170000-000.out")

@@ -1,6 +1,7 @@
 """Regridding tools for DISCO"""
 import os
 
+import cupy as cp
 import numpy as np
 import pandas as pd
 from scipy.spatial import KDTree
@@ -10,14 +11,18 @@ from scipy.spatial import KDTree
 CUR_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 TARGET_GRID = os.path.join(CUR_DIRECTORY, "data/OpenGGCMGrids/overview_7M_now_11.8Mcells/")
 
+# Options set for the KDTree. These were found to improve performance over the defaults
+# by a factor of 3X in testing.
+KDTREE_OPTIONS = dict(leafsize=64, balanced_tree=False, compact_nodes=False)
+
 
 def regrid_pointcloud(
     x_pc,
     y_pc,
     z_pc,
     point_cloud_fields,
-    k=8,
-    grid_downsample=1,
+    k=4,
+    grid_downsample=2,
 ):
     """
     Regrid pointcloud data using radial basis functions and k-NN.
@@ -48,10 +53,9 @@ def regrid_pointcloud(
     xaxis, yaxis, zaxis = get_new_grid(grid_downsample)
     X, Y, Z = np.meshgrid(xaxis, yaxis, zaxis, indexing="ij")
 
-    # Build KDTree from pointcloud and query at grid
     tree_points = np.array([x_pc, y_pc, z_pc]).T
     query_points = np.array([X.flatten(), Y.flatten(), Z.flatten()]).T
-    tree = KDTree(tree_points)
+    tree = KDTree(tree_points, **KDTREE_OPTIONS)
     d, I = tree.query(query_points, k=k)
 
     # Calculate scale of radial basis function gaussians
