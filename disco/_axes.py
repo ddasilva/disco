@@ -7,27 +7,24 @@ from disco._dimensionalization import dim_space, dim_time
 
 
 class Axes:
-    """1D arrays of uniform grid axes
-
-    Attributes
-    -----------
-    x: array with units
-       x axis coordinates
-    y: array with units
-       y axis coordinates
-    z: array with units
-       z axis coordinates
-    t: numpy array with units
-       time axis coordinates
-    r_inner: svcalar with units
-       inner boundary
-    """
+    """Coordinates of a Rectilinear Grid in SM Coordinates."""
 
     def __init__(self, x, y, z, t, r_inner):
         """Initialize instance that is dimensionalized and stored
         on the GPU.
 
-        Input arguments should have astropy units
+        Parameters
+        ----------
+        x: array with units
+            x axis coordinates
+        y: array with units
+            y axis coordinates
+        z: array with units
+            z axis coordinates
+        t: numpy array with units
+            time axis coordinates
+        r_inner: scalar with units
+            inner boundary
         """
         assert len(x.shape) == 1
         assert len(y.shape) == 1
@@ -41,11 +38,11 @@ class Axes:
         self.r_inner = r_inner
 
     def dimensionalize(self):
-        """Convert to a `DimensionalizedUniformAxes` instance.
+        """Convert to a `DimensionalizedAxes` instance.
 
-        Return
-        ------
-        instance of `DimensionalizedUniformAxes`
+        Returns
+        -------
+        instance of `DimensionalizedAxes`
         """
 
         return DimensionalizedAxes(self)

@@ -31,10 +31,11 @@ class ParticleHistory:
     Notes
     -----
     See `disco.TraceConfig(output_freq=...)`: for controlling between how many
-    iterations between particle state is saved.
+    iterations between particle state is saved. If `output_freq` is set to `None`
+    (the default), only the first and last points of the trace will be saved.
 
     Examples
-    ---------
+    --------
     Saving output to disk:
 
     >>> hist = disco.trace_trajectory(config, particle_state, field_model)
@@ -65,7 +66,7 @@ class ParticleHistory:
         """Save particle history to an HDF5 file.
 
         Parameters
-        -----------
+        ----------
         hdf_path: str
           Path to the HDF5 file where the history will be saved.
 
@@ -228,8 +229,14 @@ class ParticleHistory:
           Title of the plot.
 
         Returns
-        --------
+        -------
         The axis with the plotted trajectory.
+
+        Examples
+        --------
+        >>> hist = disco.ParticleHistory.load("particle_history.h5")
+        >>> hist.plot_xy()
+        >>> plt.savefig('myplot.png')
         """
         return self._plot_trajectory(
             ax,
@@ -275,8 +282,14 @@ class ParticleHistory:
           Title of the plot.
 
         Returns
-        --------
+        -------
         The axis with the plotted trajectory.
+
+        Examples
+        --------
+        >>> hist = disco.ParticleHistory.load("particle_history.h5")
+        >>> hist.plot_xz()
+        >>> plt.savefig('myplot.png')
         """
         return self._plot_trajectory(
             ax,
@@ -322,8 +335,14 @@ class ParticleHistory:
           Title of the plot.
 
         Returns
-        --------
+        -------
         The axis with the plotted trajectory.
+
+        Examples
+        --------
+        >>> hist = disco.ParticleHistory.load("particle_history.h5")
+        >>> hist.plot_yz()
+        >>> plt.savefig('myplot.png')
         """
         return self._plot_trajectory(
             ax,

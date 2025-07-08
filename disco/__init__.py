@@ -40,41 +40,67 @@ __all__ = [
 ]
 
 
-@dataclass
 class TraceConfig:
-    """Configuration for running the tracing code.
+    """Configuration for running the tracing code."""
 
-    Attributes
-    ----------
-    t_final: Quantity (time)
-      end time of integration (set to inf seconds if you want to stop
-      purely based on stopping conditions)
-    output_freq: int or None
-      How frequently (in iterations) to store output. Setting this
-      to non-None means memory will accumulate with time.
-    stopping_conditions: list of callables
-      List of callables (functions) that return bools. Arguments are
-      y, t, and field_model.
-    t_initial: Quantity (time)
-      Start time of integration
-    h_initial: Quantity (time)
-      Initial step size in time (leave as positive even if integrating
-      backwards)
-    rtol: float
-      Relative tolerance for adaptive integration
-    integrate_backwards: bool
-      Set to True to integrate backwards in time
-    """
+    def __init__(
+        self,
+        t_final,
+        output_freq=None,
+        stopping_conditions=None,
+        t_initial=0 * units.s,
+        h_initial=1 * units.ms,
+        rtol=1e-2,
+        integrate_backwards=False,
+        iters_max=None,
+        reorder_freq=25,
+    ):
+        """Initialize a `TraceConfig` instance.
 
-    t_final: Quantity
-    output_freq: Optional[int] = None
-    stopping_conditions: Optional[List[Callable]] = None
-    t_initial: Quantity = 0 * units.s
-    h_initial: Quantity = 1 * units.ms
-    rtol: float = 1e-2
-    integrate_backwards: bool = False
-    iters_max: Optional[int] = None
-    reorder_freq: Optional[int] = 25
+        Parameters
+        ----------
+        t_initial: scalar with time units
+          Start time of integration
+        t_final: scalar with time units
+          end time of integration (set to inf seconds if you want to stop
+          purely based on stopping conditions)
+        output_freq: int or None
+          How frequently (in iterations) to store output. Setting this
+          to non-None means memory will accumulate with time.
+        stopping_conditions: list of callables
+          List of callables (functions) that return bools. Arguments are
+          y, t, and field_model.
+        h_initial: scalar with time units
+          Initial step size in time (leave as positive even if integrating
+          backwards)
+        rtol: float
+          Relative tolerance for adaptive integration
+        integrate_backwards: bool
+          Set to True to integrate backwards in time
+
+        Examples
+        --------
+        Integrate between 0 and 10 seconds.
+
+        >>> config = disco.TraceConfig(t_final=10 * units.s)
+
+        Integrate backwards between 0 and -30 seconds.
+
+        >>> from astropy import units
+        >>> config = disco.TraceConfig(
+              t_final=-30 * units.s,
+              integrate_backwards=True
+            )
+        """
+        self.t_final = t_final.to(units.s)
+        self.output_freq = output_freq
+        self.stopping_conditions = stopping_conditions or []
+        self.t_initial = t_initial.to(units.s)
+        self.h_initial = h_initial.to(units.ms)
+        self.rtol = rtol
+        self.integrate_backwards = integrate_backwards
+        self.iters_max = iters_max
+        self.reorder_freq = reorder_freq
 
 
 class ParticleState:
@@ -119,20 +145,26 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 
     Parameters
     ----------
-    config: TraceConfig
+    config : `disco.TraceConfig`
        Configuration for performing the trace
-    particle_state: ParticleState
+    particle_state : `disco.ParticleState`
        Initial conditions of the particles
-    field_model: FieldModel or FieldModelLoader
+    field_model : `disco.FieldModel` or `disco.FieldModelLoader`
        Magnetic and Electric field context
-    verbose: int
+    verbose : int
       Set to zero to supress print statements
 
     Returns
     -------
-    hist: ParticleHistory
-       History of the trace. If output_freq=None, contains only the first and last
-       step.
+    History of the trajectories as a `ParticleHistory` object. If `config.output_freq` is `None`, contains
+    only the first and last step.
+
+    Examples
+    --------
+    >>> history = disco.trace_trajectory(
+          config, particle_state, field_model
+        )
+    >>> history.save("trajectories.h5")
     """
     # If passing a field model, make a static field model loader
     if isinstance(field_model, FieldModel):

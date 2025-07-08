@@ -51,26 +51,26 @@ class LazyFieldModelLoader(FieldModelLoader):
     in the case of simulations.
     """
 
-    def __init__(self, field_model_dataset, config, mass, charge, window_size=2, verbose=1):
+    def __init__(self, dataset, config, mass, charge, window_size=2, verbose=1):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         Parameters
         ----------
-        field_model_dataset: FieldModelDataset
-           Dataset that loads the field models on demand
-        config: TraceConfig
+        dataset : `disco.readers.FieldModelDataset`
+           Dataset that reads field models from disk on demand
+        config : `disco.TraceConfig`
            Configuration for the trace
-        mass: scalar with units
+        mass : scalar with units
            Mass of the particle
-        charge: scalar with units
+        charge : scalar with units
            Charge of the particle
-        window_size: int
+        window_size : int
            Number of time slices to load at once
         verbose: int
-           Verbosity level for logging
+           Verbosity level for logging. Set to 0 to supress output.
         """
-        self.field_model_dataset = field_model_dataset
-        self.time_axis = field_model_dataset.get_time_axis()
+        self.field_model_dataset = dataset
+        self.time_axis = dataset.get_time_axis()
         self.time_axis_dim = dim_time(self.time_axis)
         self.config = config
         self.mass = mass
@@ -168,7 +168,7 @@ class LazyFieldModelLoader(FieldModelLoader):
         Returns
         -------
         intep_result: _MultiInterpResult
-        paused: cupy array (boolean)
+        paused: cupy array of booleans
         """
         # Adjust field models currently loaded based on particle positions
         if self.config.integrate_backwards:
@@ -213,13 +213,13 @@ class StaticFieldModelLoader(FieldModelLoader):
     def __init__(self, field_model):
         """Get an instance that is dimensionalized and stored on the GPU.
 
-        Warning
-        --------
+        Notes
+        -----
         This class is not threadsafe.
 
         Parameters
         ----------
-        field_model: instance of DimensionalizedFieldModel
+        field_model : `DimensionalizedFieldModel`
         """
         self.field_model = field_model
         self.axes = field_model.axes

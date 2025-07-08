@@ -26,17 +26,17 @@ class FieldModel:
         Parameters
         ----------
         Bx: array of shape (nx, ny, nz, nt), with units
-          External Magnetic Field X component
+          External Magnetic Field X component, SM Coordinates
         By: array of shape (nx, ny, nz, nt), with units
-          External Magnetic Field Y component
+          External Magnetic Field Y component, SM Coordinates
         Bz: array of shape (nx, ny, nz, nt), with units
-          External Magnetic Field Z component
+          External Magnetic Field Z component, SM Coordinates
         Ex: array of shape (nx, ny, nz, nt), with units
-          Electric Field X component
+          Electric Field X component, SM Coordinates
         Ey: array of shape (nx, ny, nz, nt), with units
-          Electric Field Y component
+          Electric Field Y component, SM Coordinates
         Ez: array of shape (nx, ny, nz, nt), with units
-          Electric Field Z component
+          Electric Field Z component, SM Coordinates
         axes: Axes
           Grid information
         B0: scalar with units, optional
@@ -62,10 +62,7 @@ class FieldModel:
         self.dimensionalized = False
 
     def duplicate_in_time(self, time_axis=[-1, 1] * units.year):
-        """Duplicate the field model in time.
-
-        This is useful for tracing in a single time step without manually
-        duplicating the time axis.
+        """Duplicate the field model in time, to support tracing in a single time step.
 
         Parameters
         ----------
@@ -106,9 +103,9 @@ class FieldModel:
 
         Parameters
         ----------
-        mass : Quantity
+        mass : scalar with untis
           Scalar mass, used for dimensionalization
-        charge : Quantity
+        charge : scalar with untis
            Scalar charge, used for dimensionalization
 
         Return

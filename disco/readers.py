@@ -42,7 +42,7 @@ class FieldModelDataset:
 
         Returns
         -------
-        time_axis: array with units of time, and size equal to len(self)
+        array with units of time, and size equal to len(self)
         """
         raise NotImplementedError()
 
@@ -51,7 +51,7 @@ class FieldModelDataset:
 
         Returns
         -------
-        length: integer number of timesteps
+        integer number of timesteps
         """
         raise NotImplementedError()
 
@@ -64,13 +64,32 @@ class FieldModelDataset:
 
         Returns
         -------
-        field_model: instance of FieldModel with one timestep
+        instance of `disco.FieldModel` with one timestep
         """
         raise NotImplementedError()
 
 
 class SwmfOutFieldModelDataset(FieldModelDataset):
-    """Subclass of FieldModelDataset for lazy reading of SWMF .out Output
+    """Subclass of FieldModelDataset for lazy reading of SWMF Output in .out Format.
+
+    Examples
+    --------
+    Load a dataset from a glob pattern matching .out files
+
+    >>> from disco import SwmfOutFieldModelDataset
+    >>> dataset = SwmfOutFieldModelDataset(
+    ...     "/home/ubuntu/simulation_output/*.out",
+    ... )
+
+    Load a dataset but set t = 0 to a specific datetime in the dataset (if not specified,
+    the first timestep in the globbed files will be used).
+
+    >>> from datetime import datetime
+    >>> from disco import SwmfOutFieldModelDataset
+    >>> dataset = SwmfOutFieldModelDataset(
+    ...     "/home/ubuntu/simulation_output/*.out",
+    ...     t0=datetime(2023, 1, 5, 0, 0, 0),
+    ... )
 
     .. automethod:: __getitem__
     .. automethod:: __len__
@@ -87,32 +106,32 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
         verbose=1,
         grid_downsample=2,
     ):
-        """Create an instance of SwmfOutFieldModelDataset
+        """Create an instance of `SwmfOutFieldModelDataset`
 
         Parameters
         ----------
-        glob_pattern: str
-            Pattern such as "/home/ubuntu/simulation_output/*.out"
-        t0: datetime or scalar with time units
+        glob_pattern : str
+            Pattern such as `"simulation_output/*.out"`
+        t0 : `datetime` or scalar with time units
             Initial time for dataset. If filenames have a full date in them, pass a datetime
             If filenames have a relative time, pass a scalar with units of time.
             If None, the first timestamp in the globbed files will be used.
-        cache_regrid: bool
+        cache_regrid : bool
             If True, the regridded data will be cached on disk for faster access
             If False, the regridding will be done every time __getitem__ is called.
-        cache_regrid_dir: str
+        cache_regrid_dir : str
             Directory to cache regridded data. If 'same_dir', it will use the same directory as
             the CDF files.
-        B0: quantity, units of magnetic field strength
+        B0 : scalar with units  (magnetic field strength)
             Internal model to use in returned `FieldModel` instances.
-        verbose: int
+        verbose : int
             Verbosity level for output. Set to 0 for no output
 
         Raises
         ------
-        ValueError
+        `ValueError`
             If the glob pattern matches non .out files.
-        FileNotFoundError
+        `FileNotFoundError`
             If the glob pattern does not match any files.
 
         Notes
@@ -163,7 +182,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         Parameters
         ----------
-        t0: datetime or None
+        t0: `datetime` or None
             Initial time for the dataset. If None, the first timestamp in the files will be used.
             If a datetime object, it should be naive (no timezone info).
 
@@ -264,7 +283,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         Returns
         -------
-        time_axis: array with units of time, and size equal to len(self)
+        array with units of time, and size equal to len(self)
         """
         return self.time_axis
 
@@ -273,7 +292,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         Returns
         -------
-        length: integer number of timesteps
+        integer number of timesteps
         """
         return len(self.out_files)
 
@@ -282,13 +301,12 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         Parameters
         ----------
-        index: int
+        index : int
             Index of the file to get the cache file for.
 
         Returns
         -------
-        cache_file: str
-            Path to the cache file.
+        Path to the cache file for given timestep index.
         """
         return os.path.join(
             self.cache_regrid_dir,
@@ -300,11 +318,12 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         Parameters
         ----------
-        index: timestamp index, >= 0, and less then len(self)
+        index : int
+            timestamp index, >= 0 and less then len(self)
 
         Returns
         -------
-        field_model: instance of FieldModel with one timestep
+        instance of `FieldModel` with one timestep
         """
         # Use cached file is enabled and available
         cache_file = self.get_cache_file(index)
