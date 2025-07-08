@@ -10,11 +10,17 @@ class Axes:
     """1D arrays of uniform grid axes
 
     Attributes
-      x: x axis
-      y: y axis
-      z: z axis
-      t: time axis
-      r_inner: inner boundary
+    -----------
+    x: array with units
+       x axis coordinates
+    y: array with units
+       y axis coordinates
+    z: array with units
+       z axis coordinates
+    t: numpy array with units
+       time axis coordinates
+    r_inner: svcalar with units
+       inner boundary
     """
 
     def __init__(self, x, y, z, t, r_inner):

@@ -20,14 +20,31 @@ MAX_PARTICLES_BEFORE_WARNING = 1000
 
 
 class ParticleHistory:
-    """History of particle states.
+    """History of trajectory tracing.
 
     Arrays are in the shape (n_time_steps, n_particles).
     Mass and charge are scalars.
 
-    See also:
-    * `disco.TraceConfig(output_freq=...)`: Controlling between how many
-      iterations between particle state is saved.
+    Output can be stored and read from disk in HDF5 format. See the `load()` and
+    `save()` methods.
+
+    Notes
+    -----
+    See `disco.TraceConfig(output_freq=...)`: for controlling between how many
+    iterations between particle state is saved.
+
+    Examples
+    ---------
+    Saving output to disk:
+
+    >>> hist = disco.trace_trajectory(config, particle_state, field_model)
+    >>> hist.save("particle_history.h5")
+
+    Loading output from disk and plotting:
+
+    >>> hist = disco.ParticleHistory.load("particle_history.h5")
+    >>> hist.plot_xz()
+    >>> plt.savefig('myplot.png')
     """
 
     def __init__(self, t, x, y, z, ppar, M, B, W, h, stopped, mass, charge):
@@ -47,10 +64,14 @@ class ParticleHistory:
     def save(self, hdf_path):
         """Save particle history to an HDF5 file.
 
-        Args
-          hdf_path: Path to the HDF5 file where the history will be saved.
-        See also:
-          `ParticleHistory.load`: Load particle history from an HDF5 file.
+        Parameters
+        -----------
+        hdf_path: str
+          Path to the HDF5 file where the history will be saved.
+
+        Notes
+        -----
+        See `ParticleHistory.load()`: to load particle history from an HDF5 file.
         """
         with h5py.File(hdf_path, "w") as hdf:
             hdf["t"] = self.t.to_value(TIME_UNITS)
@@ -82,12 +103,18 @@ class ParticleHistory:
     def load(cls, hdf_path):
         """Load particle history from an HDF5 file.
 
-        Args
-          hdf_path: Path to the HDF5 file from which the history will be loaded.
+        Parameters
+        ----------
+        hdf_path: str
+          Path to the HDF5 file from which the history will be loaded.
+
         Returns
-          ParticleHistory: An instance of ParticleHistory containing the loaded data.
-        See also:
-          `ParticleHistory.save`: Save particle history to an HDF5 file.
+        -------
+         An instance of `ParticleHistory` containing the loaded data.
+
+        Notes
+        -----
+        See `ParticleHistory.save()` to save particle history to an HDF5 file.
         """
         with h5py.File(hdf_path, "r") as hdf:
             t = hdf["t"][:] * TIME_UNITS
@@ -183,16 +210,26 @@ class ParticleHistory:
     ):
         """Plot the particle trajectory in the XY plane.
 
-        Args:
-          ax: Matplotlib axis to plot on. If None, a new figure and axis will be created.
-          inds: Indices of the points to plot. If None, all points will be plotted.
-          endpoints: If True, plot only the start and end points of the trajectory.
-          sample: If specified, randomly sample this many particles to plot.
-          earth: If True, draw a circle representing the Earth at the origin.
-          grid: If True, add a grid to the plot.
-          title: Title of the plot.
+        Parameters
+        ----------
+        ax: matplotlib axes
+          Matplotlib axis to plot on. If None, a new figure and axis will be created.
+        inds: int or list of ints
+          Indices of the points to plot. If None, all points will be plotted.
+        endpoints: bool
+          If True, plot only the start and end points of the trajectory.
+        sample: int, optional
+          If specified, randomly sample this many particles to plot.
+        earth: bool
+          If True, draw a circle representing the Earth at the origin.
+        grid: bool
+          If True, add a grid to the plot.
+        title: str
+          Title of the plot.
+
         Returns
-          ax: The axis with the plotted trajectory.
+        --------
+        The axis with the plotted trajectory.
         """
         return self._plot_trajectory(
             ax,
@@ -220,16 +257,26 @@ class ParticleHistory:
     ):
         """Plot the particle trajectory in the XZ plane.
 
-        Args:
-          ax: Matplotlib axis to plot on. If None, a new figure and axis will be created.
-          inds: Indices of the points to plot. If None, all points will be plotted.
-          endpoints: If True, plot only the start and end points of the trajectory.
-          sample: If specified, randomly sample this many particles to plot.
-          earth: If True, draw a circle representing the Earth at the origin.
-          grid: If True, add a grid to the plot.
-          title: Title of the plot.
+        Parameters
+        ----------
+        ax: matplotlib axes
+          Matplotlib axis to plot on. If None, a new figure and axis will be created.
+        inds: int or list of ints
+          Indices of the points to plot. If None, all points will be plotted.
+        endpoints: bool
+          If True, plot only the start and end points of the trajectory.
+        sample: int, optional
+          If specified, randomly sample this many particles to plot.
+        earth: bool
+          If True, draw a circle representing the Earth at the origin.
+        grid: bool
+          If True, add a grid to the plot.
+        title: str
+          Title of the plot.
+
         Returns
-          ax: The axis with the plotted trajectory.
+        --------
+        The axis with the plotted trajectory.
         """
         return self._plot_trajectory(
             ax,
@@ -257,16 +304,26 @@ class ParticleHistory:
     ):
         """Plot the particle trajectory in the YZ plane.
 
-        Args:
-          ax: Matplotlib axis to plot on. If None, a new figure and axis will be created.
-          inds: Indices of the points to plot. If None, all points will be plotted.
-          endpoints: If True, plot only the start and end points of the trajectory.
-          sample: If specified, randomly sample this many particles to plot.
-          earth: If True, draw a circle representing the Earth at the origin.
-          grid: If True, add a grid to the plot.
-          title: Title of the plot.
+        Parameters
+        ----------
+        ax: matplotlib axes
+          Matplotlib axis to plot on. If None, a new figure and axis will be created.
+        inds: int or list of ints
+          Indices of the points to plot. If None, all points will be plotted.
+        endpoints: bool
+          If True, plot only the start and end points of the trajectory.
+        sample: int, optional
+          If specified, randomly sample this many particles to plot.
+        earth: bool
+          If True, draw a circle representing the Earth at the origin.
+        grid: bool
+          If True, add a grid to the plot.
+        title: str
+          Title of the plot.
+
         Returns
-          ax: The axis with the plotted trajectory.
+        --------
+        The axis with the plotted trajectory.
         """
         return self._plot_trajectory(
             ax,

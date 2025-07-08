@@ -16,13 +16,22 @@ from disco._field_model import FieldModel
 from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
 
 
+__all__ = [
+    "FieldModelDataset",
+    "SwmfOutFieldModelDataset",
+]
+
+
 class FieldModelDataset:
     """This is an abstract base class to provide lazy loading for simulation
     output.
 
-    See also
-    --------
-    disco.LazyFieldModelLoader
+    .. automethod:: __getitem__
+    .. automethod:: __len__
+
+    Notes
+    -----
+    See also: disco.LazyFieldModelLoader
     """
 
     def __init__(self):
@@ -61,7 +70,11 @@ class FieldModelDataset:
 
 
 class SwmfOutFieldModelDataset(FieldModelDataset):
-    """Subclass of FieldModelDataset for lazy loading of SWMF .out Output"""
+    """Subclass of FieldModelDataset for lazy reading of SWMF .out Output
+
+    .. automethod:: __getitem__
+    .. automethod:: __len__
+    """
 
     def __init__(
         self,
@@ -80,7 +93,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
         ----------
         glob_pattern: str
             Pattern such as "/home/ubuntu/simulation_output/*.out"
-        t0: datetatime or scalar with units
+        t0: datetime or scalar with time units
             Initial time for dataset. If filenames have a full date in them, pass a datetime
             If filenames have a relative time, pass a scalar with units of time.
             If None, the first timestamp in the globbed files will be used.
@@ -91,7 +104,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             Directory to cache regridded data. If 'same_dir', it will use the same directory as
             the CDF files.
         B0: quantity, units of magnetic field strength
-            Internal model to use when computing the electric field from -uxB
+            Internal model to use in returned `FieldModel` instances.
         verbose: int
             Verbosity level for output. Set to 0 for no output
 

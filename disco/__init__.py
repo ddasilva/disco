@@ -29,6 +29,17 @@ from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
 from astropy import units
 
 
+__all__ = [
+    "Axes",
+    "FieldModel",
+    "LazyFieldModelLoader",
+    "ParticleHistory",
+    "ParticleState",
+    "TraceConfig",
+    "trace_trajectory",
+]
+
+
 @dataclass
 class TraceConfig:
     """Configuration for running the tracing code.
@@ -67,27 +78,31 @@ class TraceConfig:
 
 
 class ParticleState:
-    """1D arrays of cartesian particle position component"
-
-    Attributes
-    ----------
-    x: x position
-    y: y position
-    z: z position
-    ppar: parallel momentum
-    magnetic_moment: first invariant
-    mass: rest mass
-    """
+    """Initial conditions of particles."""
 
     def __init__(self, x, y, z, ppar, magnetic_moment, mass, charge):
-        """Get a ParticleState() instance that is dimensionalized
+        """Initialize a `ParticleState` instance that is dimensionalized
         and stored on the GPU.
 
         All inputs are arrays except for mass and charge, which are
         single values.
 
-        Input argument should have astropy units attached
-        Returns ParticleState instance
+        Parameters
+        ----------
+        x: array with units
+          Starting X coordinate of particles
+        y: array with units
+          Starting Y coordinate of particles
+        z: array with units
+          Starting Z coordinate of particles
+        ppar: array with units
+          Starting parallel momentum of oparticles
+        magnetic_moment: array with units
+          First adiabatic invariant
+        mass: scalar with units
+          Mass of particles (all must be the same)
+        charge: scalar with units
+          Charge of particles (all must be the same)
         """
         self.x = cp.array(dim_space(x))
         self.y = cp.array(dim_space(y))
@@ -114,7 +129,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
       Set to zero to supress print statements
 
     Returns
-    --------
+    -------
     hist: ParticleHistory
        History of the trace. If output_freq=None, contains only the first and last
        step.

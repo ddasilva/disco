@@ -1,3 +1,5 @@
+docs/api/disco.*.rst
+_build
 data
 plots
 .ipynb_checkpoints
