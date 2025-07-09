@@ -121,7 +121,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             If False, the regridding will be done every time __getitem__ is called.
         cache_regrid_dir : str
             Directory to cache regridded data. If 'same_dir', it will use the same directory as
-            the CDF files.
+            the globbed files.
         B0 : scalar with units  (magnetic field strength)
             Internal model to use in returned `FieldModel` instances.
         verbose : int
@@ -334,7 +334,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
                     print(f"Loading cached regridded data from {cache_file}")
                 return FieldModel.load(cache_file)
 
-        # Load CDF file
+        # Load .out file
         out_file = pybats.IdlFile(self.out_files[index])
 
         # Load XYZ Positions
