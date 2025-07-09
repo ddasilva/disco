@@ -122,13 +122,13 @@ class ParticleState:
         z: array with units
           Starting Z coordinate of particles
         ppar: array with units
-          Starting parallel momentum of oparticles
+          Starting parallel momentum of particles
         magnetic_moment: array with units
           First adiabatic invariant
         mass: scalar with units
-          Mass of particles (all must be the same)
+          Mass of particles (one for all particles)
         charge: scalar with units
-          Charge of particles (all must be the same)
+          Charge of particles (one for all particles)
         """
         self.x = cp.array(dim_space(x))
         self.y = cp.array(dim_space(y))
