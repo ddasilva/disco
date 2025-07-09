@@ -141,7 +141,7 @@ class ParticleState:
 
 
 def trace_trajectory(config, particle_state, field_model, verbose=1):
-    """Calculate a particle trajectory.
+    """Calculate particle trajectories.
 
     Parameters
     ----------
