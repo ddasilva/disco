@@ -91,6 +91,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
     ...     t0=datetime(2023, 1, 5, 0, 0, 0),
     ... )
     """
+
     def __init__(
         self,
         glob_pattern,
@@ -140,7 +141,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         .. automethod:: __getitem__
         .. automethod:: __len__
-        .. autoclass:: 
+        .. autoclass::
             :members: __init__, get_time_axis, __getitem__, __len__
         """
         self.B0 = B0
@@ -422,4 +423,3 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             field_model.save(cache_file)
 
         return field_model
-    

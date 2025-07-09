@@ -14,4 +14,4 @@ For more details checkout the :ref:`reference`.
    examples
    guiding-center
    regridding
-
+   interpolation
