@@ -70,7 +70,7 @@ class FieldModelDataset:
 
 
 class SwmfOutFieldModelDataset(FieldModelDataset):
-    """Subclass of FieldModelDataset for lazy reading of SWMF Output in .out Format.
+    """Subclass of `FieldModelDataset` for lazy reading of SWMF Output in .out Format.
 
     Examples
     --------
@@ -90,11 +90,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
     ...     "/home/ubuntu/simulation_output/*.out",
     ...     t0=datetime(2023, 1, 5, 0, 0, 0),
     ... )
-
-    .. automethod:: __getitem__
-    .. automethod:: __len__
     """
-
     def __init__(
         self,
         glob_pattern,
@@ -121,7 +117,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             If False, the regridding will be done every time __getitem__ is called.
         cache_regrid_dir : str
             Directory to cache regridded data. If 'same_dir', it will use the same directory as
-            the globbed files.
+            the glob files.
         B0 : scalar with units  (magnetic field strength)
             Internal model to use in returned `FieldModel` instances.
         verbose : int
@@ -141,6 +137,11 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
 
         The timestamps are parsed from the filenames, so they must be in a format
         that can be parsed by `datetime.strptime` with the provided `timestamp_parser`.
+
+        .. automethod:: __getitem__
+        .. automethod:: __len__
+        .. autoclass:: 
+            :members: __init__, get_time_axis, __getitem__, __len__
         """
         self.B0 = B0
         self.r_inner = r_inner
@@ -421,3 +422,4 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             field_model.save(cache_file)
 
         return field_model
+    
