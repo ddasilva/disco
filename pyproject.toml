@@ -14,7 +14,7 @@ keywords = ["python", "magnetosphere", "gpu"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
         "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: BSD License",
+        "License :: OSI Approved :: Apache License",
         "Operating System :: OS Independent",
 ]
 dependencies = [

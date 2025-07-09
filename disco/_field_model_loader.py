@@ -61,9 +61,9 @@ class LazyFieldModelLoader(FieldModelLoader):
         config : `disco.TraceConfig`
            Configuration for the trace
         mass : scalar with units
-           Mass of the particle
+           Mass of the particles
         charge : scalar with units
-           Charge of the particle
+           Charge of the particles
         window_size : int
            Number of time slices to load at once
         verbose: int
