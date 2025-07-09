@@ -76,7 +76,7 @@ version = version("disco")
 # The full version, including alpha/beta/rc tags.
 
 # General information about the project.
-project = "DISCO"
+project = ""
 authors = "Disco Developers"
 copyright = f"{datetime.now().year}, {authors}, version={version}"
 author = "Disco Developers"

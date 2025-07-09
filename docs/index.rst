@@ -22,7 +22,7 @@ To install disco from PyPI, you can use the following command. If you are not us
 
 .. code::
 
-   pip install disco cupy-cuda12x
+   pip install disco-magnetosphere cupy-cuda12x
 
 
 Brief Tour
