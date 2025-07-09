@@ -38,7 +38,7 @@ class FieldModel:
         Ez: array of shape (nx, ny, nz, nt), with units
           Electric Field Z component, SM Coordinates
         axes: Axes
-          Grid information
+          Rectilinear grid information and inner boundary
         B0: scalar with units, optional
           Internal Dipole strength to add to external field interpolating.
         """
@@ -62,7 +62,7 @@ class FieldModel:
         self.dimensionalized = False
 
     def duplicate_in_time(self, time_axis=[-1, 1] * units.year):
-        """Duplicate the field model in time, to support tracing in a single time step.
+        """Duplicate the `FieldModel` in time, to support tracing in a single time step.
 
         Parameters
         ----------
@@ -115,7 +115,7 @@ class FieldModel:
         return DimensionalizedFieldModel(self, mass, charge)
 
     def save(self, hdf_path):
-        """Save the FieldModel to an HDF5 file. Can be loaded with the FieldModel.load() method.
+        """Save the `FieldModel` to an HDF5 file. Can be loaded with the `FieldModel.load()` method.
 
         Parameters
         ----------
@@ -155,32 +155,45 @@ class FieldModel:
 
         Returns
         -------
-        FieldModel
-            An instance of FieldModel loaded from the HDF5 file.
+        `FieldModel`
+            An instance of `FieldModel` loaded from the HDF5 file.
 
         Raises
         ------
-        ValueError
+        `ValueError`
             If the shapes of the arrays in the HDF5 file do not match expected dimensions.
 
         Notes
         -----
-        Requires HDF5 variables:
+        Required HDF5 variables:
+
         * `Bx`: shape (nx, ny, nz, nt), units nT
+
         * `By`: shape (nx, ny, nz, nt), units nT
+
         * `Bz`: shape (nx, ny, nz, nt), units nT
+
         * `Ex`: shape (nx, ny, nz, nt), units mV/m
+
         * `Ey`: shape (nx, ny, nz, nt), units mV/m
+
         * `Ez`: shape (nx, ny, nz, nt), units mV/m
+
         * `xaxis`: shape (nx,), units Re
+
         * `yaxis`: shape (ny,), units Re
+
         * `zaxis`: shape (nz,), units Re
+
         * `taxis`: shape (nt,), units seconds
+
         * `r_inner`: scalar, units Re
 
         Additional comments:
+
         * B values must have the dipole subtracted (also known as
           being the "external" model)
+
         * Any NaN's encoutered will halt integration immediately,
           so they can be used to place irregular outer boundaries.
         """
@@ -343,7 +356,7 @@ class DimensionalizedFieldModel:
         t: cupy array
           Vector of dimensionalized particle times
         y: cupy array
-           Vector of shape (npart, 5) of particle states
+           Vector of shape (npart, nstate) of particle states
         paused: cupy array
             Boolean array indicating whether interpolation was not done
             because the required time slice of field data is not loaded.

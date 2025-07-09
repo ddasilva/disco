@@ -149,26 +149,29 @@ class LazyFieldModelLoader(FieldModelLoader):
     def multi_interp(self, t, y, stopped_cutoff):
         """Interpolate field values at given positions.
 
-        Warning
+        Parameters
+        ----------
+        t: cupy array.
+           Vector of dimensionalized particle times.
+        y: cupy array
+           Vector of shape (npart, nstate) of ongoing particle states.
+        stopped_cutoff: int
+           Cutoff index for particles that no longer require processing.
+
+        Returns
         -------
+        intep_result: `_MultiInterpResult`
+            Contains interpolated field values for each particle at the given times.
+        paused: cupy array of booleans
+            Indicates whether each particle is paused (True) or not (False). Particles
+            are paused if their time is outside the range of loaded field models.
+
+        Notes
+        -----
         The CuPy arrays in the output arrays are atttached
         to this instance. Subsequent calls will overwrite
         them. If you want to avoid this, call .copy() on
         each array.
-
-        Paramaters
-        ----------
-        t: cupy array
-           Vector of dimensionalized particle times
-        y: cupy array
-           Vector of shape (npart, nstate) of particle states
-        stopped_cutoff: int
-           Cutoff index for partiles that no longer require processing
-
-        Returns
-        -------
-        intep_result: _MultiInterpResult
-        paused: cupy array of booleans
         """
         # Adjust field models currently loaded based on particle positions
         if self.config.integrate_backwards:
