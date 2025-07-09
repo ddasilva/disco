@@ -7,7 +7,7 @@ DISCO: Drift Orbit Simulation Code
 
 
 DISCO is a tool for magnetospheric particle trajectory modeling, also known as particle tracing, on the GPU. It calculates the trajectories of particles using guiding center theory with full support for relativistic effects. The tool operates on magnetic and electric fields on rectilinear grids and user-provided initial conditions.
-   :align: center
+
 
 .. toctree::
    :maxdepth: 2
@@ -19,7 +19,8 @@ DISCO is a tool for magnetospheric particle trajectory modeling, also known as p
 
 
 .. image:: _static/disco-3d.png
-
+   :align: center
+	   
    
 Install DISCO
 -------------
