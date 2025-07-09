@@ -12,4 +12,6 @@ For more details checkout the :ref:`reference`.
    :maxdepth: 2
 
    examples
+   guiding-center
+   regridding
 
