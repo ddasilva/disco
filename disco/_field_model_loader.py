@@ -43,7 +43,7 @@ class FieldModelLoader:
 
 
 class LazyFieldModelLoader(FieldModelLoader):
-    """Wraps a FieldModelDataset to provide lazy loadin of field models.
+    """Wraps a FieldModelDataset to provide lazy loading of field models.
 
     Tis class pauses particles if the required time slice
     of field data is not loaded. This is useful for large datasets
