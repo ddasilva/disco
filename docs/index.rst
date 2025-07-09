@@ -7,8 +7,6 @@ DISCO: Drift Orbit Simulation Code
 
 
 DISCO is a tool for magnetospheric particle trajectory modeling, also known as particle tracing, on the GPU. It calculates the trajectories of particles using guiding center theory with full support for relativistic effects. The tool operates on magnetic and electric fields on rectilinear grids and user-provided initial conditions.
-
-.. image:: _static/disco-3d.png
    :align: center
 
 .. toctree::
@@ -19,6 +17,10 @@ DISCO is a tool for magnetospheric particle trajectory modeling, also known as p
    dev-guide/index
    api
 
+
+.. image:: _static/disco-3d.png
+
+   
 Install DISCO
 -------------
 To install disco from PyPI, you can use the following command. If you are not using CUDA v12, replace `cupy-cuda12x` with `cupy` (this will build CuPy from source).
