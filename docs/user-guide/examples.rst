@@ -172,7 +172,7 @@ Loading from Custom Simulation Output
 For ambitious users who want to support dynamic loading of non-built-in magnetic and electric field models, this can be done by authoring a subclass of `disco.readers.FieldModelDataset`. The user will need to implement the following methods:
 
 * `__len__(self)`: returns the number of timesteps in the dataset
-* `__getitem__(self, index)`: returns a `disco.FieldModel` instance, with a single timestep, for the given timestep index
+* `__getitem__(self, index)`: returns a `disco.FieldModel` instance, with a single timestep, for the given timestep index. The `Axes` used to create this `FieldModel` should have the single timestep `t` value set correctly.
 * `get_time_axis(self)`: returns an array with units of time, of size equal to the number of timesteps, that describes the timestamps of each index
 
 
