@@ -102,13 +102,28 @@ Saving and Plotting Results
 
 Saving and Loading from Disk
 =============================
-This section under construction!
 
+When a trace is performed with `disco.trace_trajectory()`, it returns an instance of `disco.ParticleHistory`. This object can be saved to an HDF5 file using the `history.save()` method:
+
+.. code-block:: python
+
+    import disco		
+		
+    history = disco.trace_trajectory(
+       config, particle_state, field_model_loader
+    )
+
+    history.save('DiscoTrajectoryOutput.h5')
+
+Later on, the object can be restored from this HDF5 file using the `disco.ParticleHistory.load()` method:
+
+.. code-block:: python
+
+    history = disco.ParticleHistory.save('DiscoTrajectoryOutput.h5')		
 
 Built-in Plotting Methods
 =============================
 This section under construction!
-
 
 Advanced Options
 *****************
