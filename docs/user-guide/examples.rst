@@ -17,8 +17,8 @@ Initial conditions are configured using the `~disco.ParticleState` class. In the
 Because DISCO uses the mass and charge of the particles to dimensionalize the simulation, it can only do traces for one combination of mass and charge at a time. 
 Unless otherwise specified, all coordinates used in DISCO are Solar Magnetic (SM).
 
-
 .. code-block:: python
+
     import disco
     from astropy import constants, units
     import numpy as np
@@ -31,7 +31,7 @@ Unless otherwise specified, all coordinates used in DISCO are Solar Magnetic (SM
 	magnetic_moment = np.array([800]) * units.MeV / units.G,
 	mass = constants.m_e,
 	charge = constants.e.si,
-	)
+    )
 	
 
 Loading Simulation Output
