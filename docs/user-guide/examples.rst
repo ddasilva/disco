@@ -119,7 +119,7 @@ Later on, the object can be restored from this HDF5 file using the `disco.Partic
 
 .. code-block:: python
 
-    history = disco.ParticleHistory.save('DiscoTrajectoryOutput.h5')		
+    history = disco.ParticleHistory.load('DiscoTrajectoryOutput.h5')		
 
 Built-in Plotting Methods
 =============================
