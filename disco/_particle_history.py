@@ -25,8 +25,41 @@ class ParticleHistory:
     Arrays are in the shape (n_time_steps, n_particles).
     Mass and charge are scalars.
 
+    If some parameters completed integration in fewer timesteps than others (such as
+    by reaching the integration limit or going out of bounds), the last item will be
+    duplicated to match the shape of the other arrays. The last item before duplication
+    can be found by checking the `stopped` array, which is a boolean array of the same
+    shape as the other arrays.
+
     Output can be stored and read from disk in HDF5 format. See the `load()` and
     `save()` methods.
+
+    Attributes
+    ----------
+    t : array with units
+      Time of the particle state at each step.
+    x : array with units
+      X position of the particle at each step.
+    y : array with units
+      Y position of the particle at each step.
+    z : array with units
+      Z position of the particle at each step.
+    ppar : array with units
+      Parallel momentum of the particle at each step.
+    M : array with units
+      Magnetic moment of the particle at each step.
+    B : array with units
+      Magnetic field at the particle position at each step.
+    W : array with units
+      Total energy of the particle at each step.
+    h : array with units
+      Adapative step size used in the integration at each step.
+    stopped : array of bool
+      Boolean array indicating whether the particle stopped at each step.
+    mass : scalar with units
+      Mass of the particles (constant).
+    charge : scalar with units
+      Charge of the particles (constant).
 
     Notes
     -----
