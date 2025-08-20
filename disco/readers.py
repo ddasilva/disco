@@ -416,7 +416,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
         )
         end_time = time.time()
 
-        regrid_extra_fields = {k: regrid_fields[v] for k, v in extra_fields.items()}
+        regrid_extra_fields = {k: regrid_fields[k] for k, v in extra_fields.items()}
 
         if self.verbose > 0:
             print(f"Regridding took {end_time - start_time:.2f} seconds")

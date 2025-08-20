@@ -1,9 +1,19 @@
 import warnings
 
 from astropy import units, constants
+import cupy as cp
 import h5py
 from matplotlib import pyplot as plt
 import numpy as np
+
+from disco._dimensionalization import (
+    undim_time,
+    undim_magnetic_field,
+    undim_space,
+    undim_energy,
+    undim_momentum,
+    undim_magnetic_moment,
+)
 
 # Units for when variables are stored on disk
 TIME_UNITS = units.s
@@ -417,3 +427,116 @@ class ParticleHistory:
             "Y ($R_E$)",
             "Z ($R_E$)",
         )
+
+
+class ParticleHistoryBuffer:
+    """Buffer for storing history of particle trajectories.
+
+    This class is used to accumulate history of particle trajectories
+    during the tracing process, and related variables tracked.
+    """
+
+    def __init__(self):
+        """Initialize a `HistoryBuffer` instance."""
+        self.t = []
+        self.y = []
+        self.ppar = []
+        self.B = []
+        self.W = []
+        self.h = []
+        self.stopped = []
+        self.extra_fields = []
+
+    def append(self, t, y, B, h, stopped, extra_fields, total_reorder=None):
+        """Append a new history entry to the buffer."""
+        if total_reorder is None:
+            total_reorder_rev = np.arange(len(t), dtype=int)
+        else:
+            total_reorder_rev = np.argsort(total_reorder)
+
+        _, W = _calc_gamma_W(B, y)
+
+        self.t.append(t[total_reorder_rev].get())
+        self.y.append(y[total_reorder_rev].get())
+        self.B.append(B[total_reorder_rev].get())
+        self.W.append(W[total_reorder_rev].get())
+        self.h.append(h[total_reorder_rev].get())
+        self.stopped.append(stopped[total_reorder_rev].get())
+
+        if extra_fields.size > 0:
+            self.extra_fields.append(extra_fields[total_reorder_rev].get())
+
+    def to_particle_history(self, particle_state, field_model):
+        """Convert the accumulated history to a `ParticleHistory` instance.
+
+        Parameters
+        ----------
+        particle_state: `ParticleState`
+            The initial conditions of the particles, used to set mass and charge.
+
+        Returns
+        -------
+        ParticleHistory
+            A `ParticleHistory` instance containing the accumulated history, which
+            can be used to save or plot results.
+        """
+        hist_t = undim_time(np.array(self.t))
+        hist_B = undim_magnetic_field(np.array(self.B), particle_state.mass, particle_state.charge)
+        hist_W = undim_energy(np.array(self.W), particle_state.mass)
+        hist_h = undim_time(np.array(self.h))
+        hist_stopped = np.array(self.stopped)
+        hist_raw_extra_fields = np.array(self.extra_fields)
+        hist_y = np.array(self.y)
+        hist_pos_x = undim_space(hist_y[:, :, 0])
+        hist_pos_y = undim_space(hist_y[:, :, 1])
+        hist_pos_z = undim_space(hist_y[:, :, 2])
+        hist_ppar = undim_momentum(hist_y[:, :, 3], particle_state.mass)
+        hist_M = undim_magnetic_moment(hist_y[:, :, 4], particle_state.charge)
+
+        if len(field_model.extra_fields) > 0:
+            hist_extra_fields = {}
+            key_names = list(field_model.extra_fields.keys())
+
+            for i, key in enumerate(key_names):
+                hist_extra_fields[key] = hist_raw_extra_fields[:, :, i]
+        else:
+            hist_extra_fields = None
+
+        return ParticleHistory(
+            t=hist_t,
+            x=hist_pos_x,
+            y=hist_pos_y,
+            z=hist_pos_z,
+            ppar=hist_ppar,
+            M=hist_M,
+            B=hist_B,
+            W=hist_W,
+            h=hist_h,
+            stopped=hist_stopped,
+            mass=particle_state.mass,
+            charge=particle_state.charge,
+            extra_fields=hist_extra_fields,
+        )
+
+
+def _calc_gamma_W(B, y):
+    """Calculate  gamma (relativistic factor) and W (relativistic energy) for
+    saving in history.
+
+    Parameters
+    ----------
+    B : cupy array
+       Magnetic Field Strength, dimensionalized
+    y : cupy array
+       State vector, dimensionalied
+
+    Returns
+    -------
+    gamma: cupy array
+       Relativstic factor, dimensionalized
+    W : cupy array
+       Relativistic Energy, dimensionalized
+    """
+    gamma = cp.sqrt(1 + 2 * B * y[:, 4] + y[:, 3] ** 2)
+    W = gamma - 1
+    return gamma, W
