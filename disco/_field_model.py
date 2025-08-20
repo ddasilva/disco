@@ -18,7 +18,7 @@ from astropy import units, constants
 class FieldModel:
     """Magnetic and electric field models used to propagate particles."""
 
-    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, axes, B0=DEFAULT_B0):
+    def __init__(self, Bx, By, Bz, Ex, Ey, Ez, axes, B0=DEFAULT_B0, extra_fields=None):
         """Get an instance that is dimensionalized and stored on the GPU.
 
         Input argument should have astropy units attached.
@@ -41,6 +41,11 @@ class FieldModel:
           Rectilinear grid information and inner boundary
         B0: scalar with units, optional
           Internal Dipole strength to add to external field interpolating.
+        extra_fields: dict, optional
+          Dictionary of additional fields to include in the field model, such as
+          plasma parameters rho, p, T, etc. The keys should be strings representing
+          the field names, and the values should be arrays with shape
+          (nx, ny, nz, nt) with no units.
         """
         # Check that units are valid to catch errors early
         Bx.to(units.nT)
@@ -58,6 +63,7 @@ class FieldModel:
         self.Ey = Ey
         self.Ez = Ez
         self.B0 = B0
+        self.extra_fields = extra_fields if extra_fields is not None else {}
         self.axes = axes
         self.dimensionalized = False
 
@@ -75,11 +81,13 @@ class FieldModel:
         -------
         instance of FieldModel with duplicated time axis
         """
+
         nx, ny, nz, nt = self.Bx.shape
 
         if nt != 1:
             raise ValueError("Field model must have exactly one time step to duplicate in time.")
 
+        # Duplicate main fields in time
         new_shape = (nx, ny, nz, 2)
         Bx = np.zeros(new_shape) + self.Bx
         By = np.zeros(new_shape) + self.By
@@ -87,6 +95,17 @@ class FieldModel:
         Ex = np.zeros(new_shape) + self.Ex
         Ey = np.zeros(new_shape) + self.Ey
         Ez = np.zeros(new_shape) + self.Ez
+
+        # Duplicate the extra fields in time
+        new_extra_fields = {}
+
+        for key, value in self.extra_fields.items():
+            if value.shape != (nx, ny, nz, nt):
+                raise ValueError(
+                    f"Extra field '{key}' must have shape {(nx, ny, nz, nt)} to duplicate in time."
+                )
+            new_value = np.zeros(new_shape) + value
+            new_extra_fields[key] = new_value
 
         # Create new axes with duplicated time axis
         axes = Axes(
@@ -96,7 +115,7 @@ class FieldModel:
             t=time_axis,
             r_inner=self.axes.r_inner,
         )
-        return FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes, self.B0)
+        return FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes, self.B0, extra_fields=new_extra_fields)
 
     def dimensionalize(self, mass, charge):
         """Convert to a `DimensionalizedFieldModel` instance.
@@ -139,8 +158,15 @@ class FieldModel:
             hdf_file.create_dataset("zaxis", data=self.axes.z.to(space_units).value)
             hdf_file.create_dataset("taxis", data=self.axes.t.to(time_units).value)
 
-            # Save r_inner as a scalar
+            # Save r_inner and B0 as a scalar
             hdf_file.create_dataset("r_inner", data=self.axes.r_inner.to(space_units).value)
+
+            # Save extra fields
+            if self.extra_fields:
+                extra_fields_group = hdf_file.create_group("extra_fields")
+
+                for key, value in self.extra_fields.items():
+                    extra_fields_group.create_dataset(key, data=value)
 
     @classmethod
     def load(cls, hdf_path, B0=DEFAULT_B0):
@@ -212,6 +238,14 @@ class FieldModel:
         taxis = hdf_file["taxis"][:] * units.s
         r_inner = hdf_file["r_inner"][()] * units.R_earth
 
+        extra_fields = {}
+
+        if "extra_fields" in hdf_file.keys():
+            extra_fields_group = hdf_file["extra_fields"]
+
+            for key, value in extra_fields_group.items():
+                extra_fields[key] = value[:]  # No units, just raw data
+
         hdf_file.close()
 
         # Check shapes
@@ -221,7 +255,7 @@ class FieldModel:
         axes = Axes(xaxis, yaxis, zaxis, taxis, r_inner)
 
         # Use class constructor
-        return cls(Bx, By, Bz, Ex, Ey, Ez, axes, B0=B0)
+        return cls(Bx, By, Bz, Ex, Ey, Ez, axes, B0=B0, extra_fields=extra_fields)
 
     @classmethod
     def _check_shapes(cls, Bx, By, Bz, Ex, Ey, Ez, xaxis, yaxis, zaxis, taxis):

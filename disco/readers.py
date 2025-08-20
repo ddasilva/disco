@@ -99,6 +99,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
         cache_regrid=True,
         cache_regrid_dir="same_dir",
         B0=DEFAULT_B0,
+        plasma_params=False,
         r_inner=2.5 * constants.R_earth,
         verbose=1,
         grid_downsample=2,
@@ -121,6 +122,9 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             the glob files.
         B0 : scalar with units  (magnetic field strength)
             Internal model to use in returned `FieldModel` instances.
+        plasma_params : bool
+            If True, the dataset will also load plasma parameters (density, temperature, etc.)
+            from the .out files.
         verbose : int
             Verbosity level for output. Set to 0 for no output
 
@@ -145,6 +149,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             :members: __init__, get_time_axis, __getitem__, __len__
         """
         self.B0 = B0
+        self.plasma_params = plasma_params
         self.r_inner = r_inner
         self.grid_downsample = grid_downsample
         self.verbose = verbose
@@ -385,6 +390,22 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             "Ez": Ez.to(better_E_units).value,
         }
 
+        # Optionally load plasma parameters
+        extra_fields = {}
+
+        if self.plasma_params:
+            extra_fields["p"] = out_file["p"][:].squeeze()  # nPa
+            extra_fields["n"] = out_file["rho"][:].squeeze()  # cm^-3
+            extra_fields["jx"] = out_file["jx"][:].squeeze()  # nA/m^2
+            extra_fields["jy"] = out_file["jy"][:].squeeze()  # nA/m^2
+            extra_fields["jz"] = out_file["jz"][:].squeeze()  # nA/m^2
+            extra_fields["ux"] = out_file["ux"][:].squeeze()  # km/s
+            extra_fields["uy"] = out_file["uy"][:].squeeze()  # km/s
+            extra_fields["uz"] = out_file["uz"][:].squeeze()  # km/s
+
+            point_cloud_fields.update(extra_fields)
+
+        # Regrid point cloud to a regular grid
         start_time = time.time()
         xaxis, yaxis, zaxis, regrid_fields = regrid_pointcloud(
             x.to(constants.R_earth).value,
@@ -394,6 +415,8 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             grid_downsample=self.grid_downsample,
         )
         end_time = time.time()
+
+        regrid_extra_fields = {k: regrid_fields[v] for k, v in extra_fields.items()}
 
         if self.verbose > 0:
             print(f"Regridding took {end_time - start_time:.2f} seconds")
@@ -416,6 +439,7 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             regrid_fields["Ez"] * better_E_units,
             axes,
             B0=self.B0,
+            extra_fields=regrid_extra_fields,
         )
 
         # Save regridded data to cache if enabled
