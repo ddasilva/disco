@@ -145,12 +145,13 @@ def multi_interp_kernel(
     x_axis,
     y_axis,
     z_axis,
-    bxvec,
-    byvec,
-    bzvec,
-    exvec,
-    eyvec,
-    ezvec,
+    bx_vec,
+    by_vec,
+    bz_vec,
+    ex_vec,
+    ey_vec,
+    ez_vec,
+    extra_fields_vec,
     bx,
     by,
     bz,
@@ -170,6 +171,7 @@ def multi_interp_kernel(
     dbdx,
     dbdy,
     dbdz,
+    extra_fields,
 ):
     """[CUPY KERNEL] Four dimensional interpolation with finite differencing
     and reused weights.
@@ -269,122 +271,143 @@ def multi_interp_kernel(
 
         # ...interpolate field components...
         bx[idx] = (
-            bxvec[iiii] * ww01
-            + bxvec[jiii] * ww02
-            + bxvec[jjii] * ww03
-            + bxvec[ijii] * ww04
-            + bxvec[iiji] * ww05
-            + bxvec[jiji] * ww06
-            + bxvec[jjji] * ww07
-            + bxvec[ijji] * ww08
-            + bxvec[iiij] * ww09
-            + bxvec[jiij] * ww10
-            + bxvec[jjij] * ww11
-            + bxvec[ijij] * ww12
-            + bxvec[iijj] * ww13
-            + bxvec[jijj] * ww14
-            + bxvec[jjjj] * ww15
-            + bxvec[ijjj] * ww16
+            bx_vec[iiii] * ww01
+            + bx_vec[jiii] * ww02
+            + bx_vec[jjii] * ww03
+            + bx_vec[ijii] * ww04
+            + bx_vec[iiji] * ww05
+            + bx_vec[jiji] * ww06
+            + bx_vec[jjji] * ww07
+            + bx_vec[ijji] * ww08
+            + bx_vec[iiij] * ww09
+            + bx_vec[jiij] * ww10
+            + bx_vec[jjij] * ww11
+            + bx_vec[ijij] * ww12
+            + bx_vec[iijj] * ww13
+            + bx_vec[jijj] * ww14
+            + bx_vec[jjjj] * ww15
+            + bx_vec[ijjj] * ww16
             - bfac1 * y[idx, 0] * y[idx, 2]
         )
 
         by[idx] = (
-            byvec[iiii] * ww01
-            + byvec[jiii] * ww02
-            + byvec[jjii] * ww03
-            + byvec[ijii] * ww04
-            + byvec[iiji] * ww05
-            + byvec[jiji] * ww06
-            + byvec[jjji] * ww07
-            + byvec[ijji] * ww08
-            + byvec[iiij] * ww09
-            + byvec[jiij] * ww10
-            + byvec[jjij] * ww11
-            + byvec[ijij] * ww12
-            + byvec[iijj] * ww13
-            + byvec[jijj] * ww14
-            + byvec[jjjj] * ww15
-            + byvec[ijjj] * ww16
+            by_vec[iiii] * ww01
+            + by_vec[jiii] * ww02
+            + by_vec[jjii] * ww03
+            + by_vec[ijii] * ww04
+            + by_vec[iiji] * ww05
+            + by_vec[jiji] * ww06
+            + by_vec[jjji] * ww07
+            + by_vec[ijji] * ww08
+            + by_vec[iiij] * ww09
+            + by_vec[jiij] * ww10
+            + by_vec[jjij] * ww11
+            + by_vec[ijij] * ww12
+            + by_vec[iijj] * ww13
+            + by_vec[jijj] * ww14
+            + by_vec[jjjj] * ww15
+            + by_vec[ijjj] * ww16
             - bfac1 * y[idx, 1] * y[idx, 2]
         )
 
         bz[idx] = (
-            bzvec[iiii] * ww01
-            + bzvec[jiii] * ww02
-            + bzvec[jjii] * ww03
-            + bzvec[ijii] * ww04
-            + bzvec[iiji] * ww05
-            + bzvec[jiji] * ww06
-            + bzvec[jjji] * ww07
-            + bzvec[ijji] * ww08
-            + bzvec[iiij] * ww09
-            + bzvec[jiij] * ww10
-            + bzvec[jjij] * ww11
-            + bzvec[ijij] * ww12
-            + bzvec[iijj] * ww13
-            + bzvec[jijj] * ww14
-            + bzvec[jjjj] * ww15
-            + bzvec[ijjj] * ww16
+            bz_vec[iiii] * ww01
+            + bz_vec[jiii] * ww02
+            + bz_vec[jjii] * ww03
+            + bz_vec[ijii] * ww04
+            + bz_vec[iiji] * ww05
+            + bz_vec[jiji] * ww06
+            + bz_vec[jjji] * ww07
+            + bz_vec[ijji] * ww08
+            + bz_vec[iiij] * ww09
+            + bz_vec[jiij] * ww10
+            + bz_vec[jjij] * ww11
+            + bz_vec[ijij] * ww12
+            + bz_vec[iijj] * ww13
+            + bz_vec[jijj] * ww14
+            + bz_vec[jjjj] * ww15
+            + bz_vec[ijjj] * ww16
             - bfac1 * y[idx, 2] * y[idx, 2]
             + b0[idx] / r2 / r
         )
 
         ex[idx] = (
-            exvec[iiii] * ww01
-            + exvec[jiii] * ww02
-            + exvec[jjii] * ww03
-            + exvec[ijii] * ww04
-            + exvec[iiji] * ww05
-            + exvec[jiji] * ww06
-            + exvec[jjji] * ww07
-            + exvec[ijji] * ww08
-            + exvec[iiij] * ww09
-            + exvec[jiij] * ww10
-            + exvec[jjij] * ww11
-            + exvec[ijij] * ww12
-            + exvec[iijj] * ww13
-            + exvec[jijj] * ww14
-            + exvec[jjjj] * ww15
-            + exvec[ijjj] * ww16
+            ex_vec[iiii] * ww01
+            + ex_vec[jiii] * ww02
+            + ex_vec[jjii] * ww03
+            + ex_vec[ijii] * ww04
+            + ex_vec[iiji] * ww05
+            + ex_vec[jiji] * ww06
+            + ex_vec[jjji] * ww07
+            + ex_vec[ijji] * ww08
+            + ex_vec[iiij] * ww09
+            + ex_vec[jiij] * ww10
+            + ex_vec[jjij] * ww11
+            + ex_vec[ijij] * ww12
+            + ex_vec[iijj] * ww13
+            + ex_vec[jijj] * ww14
+            + ex_vec[jjjj] * ww15
+            + ex_vec[ijjj] * ww16
         )
 
         ey[idx] = (
-            eyvec[iiii] * ww01
-            + eyvec[jiii] * ww02
-            + eyvec[jjii] * ww03
-            + eyvec[ijii] * ww04
-            + eyvec[iiji] * ww05
-            + eyvec[jiji] * ww06
-            + eyvec[jjji] * ww07
-            + eyvec[ijji] * ww08
-            + eyvec[iiij] * ww09
-            + eyvec[jiij] * ww10
-            + eyvec[jjij] * ww11
-            + eyvec[ijij] * ww12
-            + eyvec[iijj] * ww13
-            + eyvec[jijj] * ww14
-            + eyvec[jjjj] * ww15
-            + eyvec[ijjj] * ww16
+            ey_vec[iiii] * ww01
+            + ey_vec[jiii] * ww02
+            + ey_vec[jjii] * ww03
+            + ey_vec[ijii] * ww04
+            + ey_vec[iiji] * ww05
+            + ey_vec[jiji] * ww06
+            + ey_vec[jjji] * ww07
+            + ey_vec[ijji] * ww08
+            + ey_vec[iiij] * ww09
+            + ey_vec[jiij] * ww10
+            + ey_vec[jjij] * ww11
+            + ey_vec[ijij] * ww12
+            + ey_vec[iijj] * ww13
+            + ey_vec[jijj] * ww14
+            + ey_vec[jjjj] * ww15
+            + ey_vec[ijjj] * ww16
         )
 
         ez[idx] = (
-            ezvec[iiii] * ww01
-            + ezvec[jiii] * ww02
-            + ezvec[jjii] * ww03
-            + ezvec[ijii] * ww04
-            + ezvec[iiji] * ww05
-            + ezvec[jiji] * ww06
-            + ezvec[jjji] * ww07
-            + ezvec[ijji] * ww08
-            + ezvec[iiij] * ww09
-            + ezvec[jiij] * ww10
-            + ezvec[jjij] * ww11
-            + ezvec[ijij] * ww12
-            + ezvec[iijj] * ww13
-            + ezvec[jijj] * ww14
-            + ezvec[jjjj] * ww15
-            + ezvec[ijjj] * ww16
+            ez_vec[iiii] * ww01
+            + ez_vec[jiii] * ww02
+            + ez_vec[jjii] * ww03
+            + ez_vec[ijii] * ww04
+            + ez_vec[iiji] * ww05
+            + ez_vec[jiji] * ww06
+            + ez_vec[jjji] * ww07
+            + ez_vec[ijji] * ww08
+            + ez_vec[iiij] * ww09
+            + ez_vec[jiij] * ww10
+            + ez_vec[jjij] * ww11
+            + ez_vec[ijij] * ww12
+            + ez_vec[iijj] * ww13
+            + ez_vec[jijj] * ww14
+            + ez_vec[jjjj] * ww15
+            + ez_vec[ijjj] * ww16
         )
+
+        # ...interpolate extra fields...
+        for ifield in range(extra_fields_vec.shape[0]):
+            extra_fields[ifield, idx] = (
+                extra_fields_vec[ifield, iiii] * ww01
+                + extra_fields_vec[ifield, jiii] * ww02
+                + extra_fields_vec[ifield, jjii] * ww03
+                + extra_fields_vec[ifield, ijii] * ww04
+                + extra_fields_vec[ifield, iiji] * ww05
+                + extra_fields_vec[ifield, jiji] * ww06
+                + extra_fields_vec[ifield, jjji] * ww07
+                + extra_fields_vec[ifield, ijji] * ww08
+                + extra_fields_vec[ifield, iiij] * ww09
+                + extra_fields_vec[ifield, jiij] * ww10
+                + extra_fields_vec[ifield, jjij] * ww11
+                + extra_fields_vec[ifield, ijij] * ww12
+                + extra_fields_vec[ifield, iijj] * ww13
+                + extra_fields_vec[ifield, jijj] * ww14
+                + extra_fields_vec[ifield, jjjj] * ww15
+                + extra_fields_vec[ifield, ijjj] * ww16
+            )
 
         # ...calculate btot and field derivatives to 1st order...
         # ...first form more intermediate weights...
@@ -418,14 +441,14 @@ def multi_interp_kernel(
         # ...calculate component derivatives...
         dbxdx[idx] = (
             (
-                (bxvec[jiii] - bxvec[iiii]) * w2m3m4m
-                + (bxvec[jjii] - bxvec[ijii]) * w23m4m
-                + (bxvec[jiji] - bxvec[iiji]) * w2m34m
-                + (bxvec[jjji] - bxvec[ijji]) * w234m
-                + (bxvec[jiij] - bxvec[iiij]) * w2m3m4
-                + (bxvec[jjij] - bxvec[ijij]) * w23m4
-                + (bxvec[jijj] - bxvec[iijj]) * w2m34
-                + (bxvec[jjjj] - bxvec[ijjj]) * w234
+                (bx_vec[jiii] - bx_vec[iiii]) * w2m3m4m
+                + (bx_vec[jjii] - bx_vec[ijii]) * w23m4m
+                + (bx_vec[jiji] - bx_vec[iiji]) * w2m34m
+                + (bx_vec[jjji] - bx_vec[ijji]) * w234m
+                + (bx_vec[jiij] - bx_vec[iiij]) * w2m3m4
+                + (bx_vec[jjij] - bx_vec[ijij]) * w23m4
+                + (bx_vec[jijj] - bx_vec[iijj]) * w2m34
+                + (bx_vec[jjjj] - bx_vec[ijjj]) * w234
             )
             / dx
             - bfac1 * y[idx, 2]
@@ -433,26 +456,26 @@ def multi_interp_kernel(
         )
 
         dbxdy[idx] = (
-            (bxvec[ijii] - bxvec[iiii]) * w1m3m4m
-            + (bxvec[jjii] - bxvec[jiii]) * w13m4m
-            + (bxvec[ijji] - bxvec[iiji]) * w1m34m
-            + (bxvec[jjji] - bxvec[jiji]) * w134m
-            + (bxvec[ijij] - bxvec[iiij]) * w1m3m4
-            + (bxvec[jjij] - bxvec[jiij]) * w13m4
-            + (bxvec[ijjj] - bxvec[iijj]) * w1m34
-            + (bxvec[jjjj] - bxvec[jijj]) * w134
+            (bx_vec[ijii] - bx_vec[iiii]) * w1m3m4m
+            + (bx_vec[jjii] - bx_vec[jiii]) * w13m4m
+            + (bx_vec[ijji] - bx_vec[iiji]) * w1m34m
+            + (bx_vec[jjji] - bx_vec[jiji]) * w134m
+            + (bx_vec[ijij] - bx_vec[iiij]) * w1m3m4
+            + (bx_vec[jjij] - bx_vec[jiij]) * w13m4
+            + (bx_vec[ijjj] - bx_vec[iijj]) * w1m34
+            + (bx_vec[jjjj] - bx_vec[jijj]) * w134
         ) / dy + bfac2 * y[idx, 0] * y[idx, 1] * y[idx, 2]
 
         dbxdz[idx] = (
             (
-                (bxvec[iiji] - bxvec[iiii]) * w1m2m4m
-                + (bxvec[jiji] - bxvec[jiii]) * w12m4m
-                + (bxvec[ijji] - bxvec[ijii]) * w1m24m
-                + (bxvec[jjji] - bxvec[jjii]) * w124m
-                + (bxvec[iijj] - bxvec[iiij]) * w1m2m4
-                + (bxvec[jijj] - bxvec[jiij]) * w12m4
-                + (bxvec[ijjj] - bxvec[ijij]) * w1m24
-                + (bxvec[jjjj] - bxvec[jjij]) * w124
+                (bx_vec[iiji] - bx_vec[iiii]) * w1m2m4m
+                + (bx_vec[jiji] - bx_vec[jiii]) * w12m4m
+                + (bx_vec[ijji] - bx_vec[ijii]) * w1m24m
+                + (bx_vec[jjji] - bx_vec[jjii]) * w124m
+                + (bx_vec[iijj] - bx_vec[iiij]) * w1m2m4
+                + (bx_vec[jijj] - bx_vec[jiij]) * w12m4
+                + (bx_vec[ijjj] - bx_vec[ijij]) * w1m24
+                + (bx_vec[jjjj] - bx_vec[jjij]) * w124
             )
             / dz
             - bfac1 * y[idx, 0]
@@ -460,26 +483,26 @@ def multi_interp_kernel(
         )
 
         dbydx[idx] = (
-            (byvec[jiii] - byvec[iiii]) * w2m3m4m
-            + (byvec[jjii] - byvec[ijii]) * w23m4m
-            + (byvec[jiji] - byvec[iiji]) * w2m34m
-            + (byvec[jjji] - byvec[ijji]) * w234m
-            + (byvec[jiij] - byvec[iiij]) * w2m3m4
-            + (byvec[jjij] - byvec[ijij]) * w23m4
-            + (byvec[jijj] - byvec[iijj]) * w2m34
-            + (byvec[jjjj] - byvec[ijjj]) * w234
+            (by_vec[jiii] - by_vec[iiii]) * w2m3m4m
+            + (by_vec[jjii] - by_vec[ijii]) * w23m4m
+            + (by_vec[jiji] - by_vec[iiji]) * w2m34m
+            + (by_vec[jjji] - by_vec[ijji]) * w234m
+            + (by_vec[jiij] - by_vec[iiij]) * w2m3m4
+            + (by_vec[jjij] - by_vec[ijij]) * w23m4
+            + (by_vec[jijj] - by_vec[iijj]) * w2m34
+            + (by_vec[jjjj] - by_vec[ijjj]) * w234
         ) / dx + bfac2 * y[idx, 1] * y[idx, 2] * y[idx, 0]
 
         dbydy[idx] = (
             (
-                (byvec[ijii] - byvec[iiii]) * w1m3m4m
-                + (byvec[jjii] - byvec[jiii]) * w13m4m
-                + (byvec[ijji] - byvec[iiji]) * w1m34m
-                + (byvec[jjji] - byvec[jiji]) * w134m
-                + (byvec[ijij] - byvec[iiij]) * w1m3m4
-                + (byvec[jjij] - byvec[jiij]) * w13m4
-                + (byvec[ijjj] - byvec[iijj]) * w1m34
-                + (byvec[jjjj] - byvec[jijj]) * w134
+                (by_vec[ijii] - by_vec[iiii]) * w1m3m4m
+                + (by_vec[jjii] - by_vec[jiii]) * w13m4m
+                + (by_vec[ijji] - by_vec[iiji]) * w1m34m
+                + (by_vec[jjji] - by_vec[jiji]) * w134m
+                + (by_vec[ijij] - by_vec[iiij]) * w1m3m4
+                + (by_vec[jjij] - by_vec[jiij]) * w13m4
+                + (by_vec[ijjj] - by_vec[iijj]) * w1m34
+                + (by_vec[jjjj] - by_vec[jijj]) * w134
             )
             / dy
             - bfac1 * y[idx, 2]
@@ -488,14 +511,14 @@ def multi_interp_kernel(
 
         dbydz[idx] = (
             (
-                (byvec[iiji] - byvec[iiii]) * w1m2m4m
-                + (byvec[jiji] - byvec[jiii]) * w12m4m
-                + (byvec[ijji] - byvec[ijii]) * w1m24m
-                + (byvec[jjji] - byvec[jjii]) * w124m
-                + (byvec[iijj] - byvec[iiij]) * w1m2m4
-                + (byvec[jijj] - byvec[jiij]) * w12m4
-                + (byvec[ijjj] - byvec[ijij]) * w1m24
-                + (byvec[jjjj] - byvec[jjij]) * w124
+                (by_vec[iiji] - by_vec[iiii]) * w1m2m4m
+                + (by_vec[jiji] - by_vec[jiii]) * w12m4m
+                + (by_vec[ijji] - by_vec[ijii]) * w1m24m
+                + (by_vec[jjji] - by_vec[jjii]) * w124m
+                + (by_vec[iijj] - by_vec[iiij]) * w1m2m4
+                + (by_vec[jijj] - by_vec[jiij]) * w12m4
+                + (by_vec[ijjj] - by_vec[ijij]) * w1m24
+                + (by_vec[jjjj] - by_vec[jjij]) * w124
             )
             / dz
             - bfac1 * y[idx, 1]
@@ -504,14 +527,14 @@ def multi_interp_kernel(
 
         dbzdx[idx] = (
             (
-                (bzvec[jiii] - bzvec[iiii]) * w2m3m4m
-                + (bzvec[jjii] - bzvec[ijii]) * w23m4m
-                + (bzvec[jiji] - bzvec[iiji]) * w2m34m
-                + (bzvec[jjji] - bzvec[ijji]) * w234m
-                + (bzvec[jiij] - bzvec[iiij]) * w2m3m4
-                + (bzvec[jjij] - bzvec[ijij]) * w23m4
-                + (bzvec[jijj] - bzvec[iijj]) * w2m34
-                + (bzvec[jjjj] - bzvec[ijjj]) * w234
+                (bz_vec[jiii] - bz_vec[iiii]) * w2m3m4m
+                + (bz_vec[jjii] - bz_vec[ijii]) * w23m4m
+                + (bz_vec[jiji] - bz_vec[iiji]) * w2m34m
+                + (bz_vec[jjji] - bz_vec[ijji]) * w234m
+                + (bz_vec[jiij] - bz_vec[iiij]) * w2m3m4
+                + (bz_vec[jjij] - bz_vec[ijij]) * w23m4
+                + (bz_vec[jijj] - bz_vec[iijj]) * w2m34
+                + (bz_vec[jjjj] - bz_vec[ijjj]) * w234
             )
             / dx
             - bfac1 * y[idx, 0]
@@ -520,14 +543,14 @@ def multi_interp_kernel(
 
         dbzdy[idx] = (
             (
-                (bzvec[ijii] - bzvec[iiii]) * w1m3m4m
-                + (bzvec[jjii] - bzvec[jiii]) * w13m4m
-                + (bzvec[ijji] - bzvec[iiji]) * w1m34m
-                + (bzvec[jjji] - bzvec[jiji]) * w134m
-                + (bzvec[ijij] - bzvec[iiij]) * w1m3m4
-                + (bzvec[jjij] - bzvec[jiij]) * w13m4
-                + (bzvec[ijjj] - bzvec[iijj]) * w1m34
-                + (bzvec[jjjj] - bzvec[jijj]) * w134
+                (bz_vec[ijii] - bz_vec[iiii]) * w1m3m4m
+                + (bz_vec[jjii] - bz_vec[jiii]) * w13m4m
+                + (bz_vec[ijji] - bz_vec[iiji]) * w1m34m
+                + (bz_vec[jjji] - bz_vec[jiji]) * w134m
+                + (bz_vec[ijij] - bz_vec[iiij]) * w1m3m4
+                + (bz_vec[jjij] - bz_vec[jiij]) * w13m4
+                + (bz_vec[ijjj] - bz_vec[iijj]) * w1m34
+                + (bz_vec[jjjj] - bz_vec[jijj]) * w134
             )
             / dy
             - bfac1 * y[idx, 1]
@@ -536,14 +559,14 @@ def multi_interp_kernel(
 
         dbzdz[idx] = (
             (
-                (bzvec[iiji] - bzvec[iiii]) * w1m2m4m
-                + (bzvec[jiji] - bzvec[jiii]) * w12m4m
-                + (bzvec[ijji] - bzvec[ijii]) * w1m24m
-                + (bzvec[jjji] - bzvec[jjii]) * w124m
-                + (bzvec[iijj] - bzvec[iiij]) * w1m2m4
-                + (bzvec[jijj] - bzvec[jiij]) * w12m4
-                + (bzvec[ijjj] - bzvec[ijij]) * w1m24
-                + (bzvec[jjjj] - bzvec[jjij]) * w124
+                (bz_vec[iiji] - bz_vec[iiii]) * w1m2m4m
+                + (bz_vec[jiji] - bz_vec[jiii]) * w12m4m
+                + (bz_vec[ijji] - bz_vec[ijii]) * w1m24m
+                + (bz_vec[jjji] - bz_vec[jjii]) * w124m
+                + (bz_vec[iijj] - bz_vec[iiij]) * w1m2m4
+                + (bz_vec[jijj] - bz_vec[jiij]) * w12m4
+                + (bz_vec[ijjj] - bz_vec[ijij]) * w1m24
+                + (bz_vec[jjjj] - bz_vec[jjij]) * w124
             )
             / dz
             - 3.0 * bfac1 * y[idx, 2]

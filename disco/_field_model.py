@@ -1,6 +1,7 @@
 """Module for just the FieldModel and DimensionalizedFieldModel classes"""
 from dataclasses import dataclass
 import math
+from typing import Dict
 
 import cupy as cp
 import h5py
@@ -319,6 +320,10 @@ class DimensionalizedFieldModel:
         self.Ex = cp.array(dim_electric_field(field_model.Ex, mass, charge))
         self.Ey = cp.array(dim_electric_field(field_model.Ey, mass, charge))
         self.Ez = cp.array(dim_electric_field(field_model.Ez, mass, charge))
+        self.extra_fields = {}
+
+        for key, value in field_model.extra_fields.items():
+            self.extra_fields[key] = cp.array(value)
 
         self.axes = field_model.axes.dimensionalize()
 
@@ -350,6 +355,10 @@ class DimensionalizedFieldModel:
         self._Exvec = self.Ex.reshape(nttl, order="F")
         self._Eyvec = self.Ey.reshape(nttl, order="F")
         self._Ezvec = self.Ez.reshape(nttl, order="F")
+        self._extra_fields_vec = cp.zeros((len(self.extra_fields), arr_size))
+
+        for i, value in enumerate(self.extra_fields.values()):
+            self._extra_fields_vec[i, :] = value.reshape(nttl, order="F")
 
         self._Bx_out = cp.zeros(arr_size)
         self._By_out = cp.zeros(arr_size)
@@ -370,6 +379,7 @@ class DimensionalizedFieldModel:
         self._dBdx_out = cp.zeros(arr_size)
         self._dBdy_out = cp.zeros(arr_size)
         self._dBdz_out = cp.zeros(arr_size)
+        self._extra_fields_out = cp.zeros((len(self.extra_fields), arr_size))
 
         # Save state variables
         self._memory_initialized = True
@@ -467,6 +477,7 @@ class DimensionalizedFieldModel:
             self._Exvec,
             self._Eyvec,
             self._Ezvec,
+            self._extra_fields_vec,
             self._Bx_out,
             self._By_out,
             self._Bz_out,
@@ -486,6 +497,7 @@ class DimensionalizedFieldModel:
             self._dBdx_out,
             self._dBdy_out,
             self._dBdz_out,
+            self._extra_fields_out,
         )
 
         # need to account for dimensionalization of magnitude
@@ -494,6 +506,12 @@ class DimensionalizedFieldModel:
             self._dBdx_out *= -1
             self._dBdy_out *= -1
             self._dBdz_out *= -1
+
+        extra_fields_out_dict = {}
+
+        for i, (key, value) in enumerate(self.extra_fields.items()):
+            # Add to the output dictionary
+            extra_fields_out_dict[key] = self._extra_fields_out[i, :]
 
         # Return values as tuple
         return _MultiInterpResult(
@@ -516,6 +534,7 @@ class DimensionalizedFieldModel:
             dBdx=self._dBdx_out,
             dBdy=self._dBdy_out,
             dBdz=self._dBdz_out,
+            extra_fields=self._extra_fields_out,
         )
 
 
@@ -545,3 +564,4 @@ class _MultiInterpResult:
     dBdx: cp.array
     dBdy: cp.array
     dBdz: cp.array
+    extra_fields: Dict[str, cp.array]

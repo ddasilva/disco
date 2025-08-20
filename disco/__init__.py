@@ -140,6 +140,85 @@ class ParticleState:
         self.charge = charge.to(units.coulomb)
 
 
+class HistoryBuffer:
+    """Buffer for storing history of particle trajectories.
+
+    This class is used to accumulate history of particle trajectories
+    during the tracing process, and related variables tracked.
+    """
+
+    def __init__(self):
+        """Initialize a `HistoryBuffer` instance."""
+        self.t = []
+        self.y = []
+        self.ppar = []
+        self.B = []
+        self.W = []
+        self.h = []
+        self.stopped = []
+        self.extra_fields = []
+
+    def append(self, t, y, B, h, stopped, extra_fields, total_reorder=None):
+        """Append a new history entry to the buffer."""
+        if total_reorder is None:
+            total_reorder_rev = np.arange(len(t), dtype=int)
+        else:
+            total_reorder_rev = np.argsort(total_reorder)
+
+        _, W = _calc_gamma_W(B, y)
+
+        self.t.append(t[total_reorder_rev].get())
+        self.y.append(y[total_reorder_rev].get())
+        self.B.append(B[total_reorder_rev].get())
+        self.W.append(W[total_reorder_rev].get())
+        self.h.append(h[total_reorder_rev].get())
+        self.stopped.append(stopped[total_reorder_rev].get())
+
+        if extra_fields.size > 0:
+            self.extra_fields.append(extra_fields[total_reorder_rev].get())
+
+    def to_particle_history(self, particle_state):
+        """Convert the accumulated history to a `ParticleHistory` instance.
+
+        Parameters
+        ----------
+        particle_state: `ParticleState`
+            The initial conditions of the particles, used to set mass and charge.
+
+        Returns
+        -------
+        ParticleHistory
+            A `ParticleHistory` instance containing the accumulated history, which
+            can be used to save or plot results.
+        """
+        hist_t = undim_time(np.array(self.t))
+        hist_B = undim_magnetic_field(np.array(self.B), particle_state.mass, particle_state.charge)
+        hist_W = undim_energy(np.array(self.W), particle_state.mass)
+        hist_h = undim_time(np.array(self.h))
+        hist_stopped = np.array(self.stopped)
+        hist_y = np.array(self.y)
+        hist_pos_x = undim_space(hist_y[:, :, 0])
+        hist_pos_y = undim_space(hist_y[:, :, 1])
+        hist_pos_z = undim_space(hist_y[:, :, 2])
+        hist_ppar = undim_momentum(hist_y[:, :, 3], particle_state.mass)
+        hist_M = undim_magnetic_moment(hist_y[:, :, 4], particle_state.charge)
+
+        return ParticleHistory(
+            t=hist_t,
+            x=hist_pos_x,
+            y=hist_pos_y,
+            z=hist_pos_z,
+            ppar=hist_ppar,
+            M=hist_M,
+            B=hist_B,
+            W=hist_W,
+            h=hist_h,
+            stopped=hist_stopped,
+            mass=particle_state.mass,
+            charge=particle_state.charge,
+        )
+
+
 def trace_trajectory(config, particle_state, field_model, verbose=1):
     """Calculate particle trajectories.
 
@@ -200,13 +279,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     iter_count = 0
 
     R = RK45Coeffs
-
-    hist_y = []
-    hist_t = []
-    hist_W = []
-    hist_B = []
-    hist_h = []
-    hist_stopped = []
+    hist_buff = HistoryBuffer()
 
     # Iteration
     # ---------------------------
@@ -240,25 +313,29 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
 
         # Call _rhs() function to implement multiple function evaluations of
         # right hand side.
-        k1, B, paused1 = _rhs(t, y, field_model_loader, stopped_cutoff)
+        k1, B, extra_fields, paused1 = _rhs(t, y, field_model_loader, stopped_cutoff)
         B = B.copy()
-        k2, _, paused2 = _rhs(t + h * R.a2, y + h_ * R.b21 * k1, field_model_loader, stopped_cutoff)
-        k3, _, paused3 = _rhs(
+        extra_fields = extra_fields.copy()
+
+        k2, _, _, paused2 = _rhs(
+            t + h * R.a2, y + h_ * R.b21 * k1, field_model_loader, stopped_cutoff
+        )
+        k3, _, _, paused3 = _rhs(
             t + h * R.a3, y + h_ * (R.b31 * k1 + R.b32 * k2), field_model_loader, stopped_cutoff
         )
-        k4, _, paused4 = _rhs(
+        k4, _, _, paused4 = _rhs(
             t + h * R.a4,
             y + h_ * (R.b41 * k1 + R.b42 * k2 + R.b43 * k3),
             field_model_loader,
             stopped_cutoff,
         )
-        k5, _, paused5 = _rhs(
+        k5, _, _, paused5 = _rhs(
             t + h * R.a5,
             y + h_ * (R.b51 * k1 + R.b52 * k2 + R.b53 * k3 + R.b54 * k4),
             field_model_loader,
             stopped_cutoff,
         )
-        k6, _, paused6 = _rhs(
+        k6, _, _, paused6 = _rhs(
             t + h * R.a6,
             y + h_ * (R.b61 * k1 + R.b62 * k2 + R.b63 * k3 + R.b64 * k4 + R.b65 * k5),
             field_model_loader,
@@ -279,14 +356,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
         )
 
         if save_history:
-            total_reorder_rev = np.argsort(total_reorder)
-            gamma, W = _calc_gamma_W(B, y)
-            hist_t.append(t[total_reorder_rev].get())
-            hist_y.append(y[total_reorder_rev].get())
-            hist_B.append(B[total_reorder_rev].get())
-            hist_W.append(W[total_reorder_rev].get())
-            hist_h.append(h[total_reorder_rev].get())
-            hist_stopped.append(stopped[total_reorder_rev].get())
+            hist_buff.append(t, y, B, h, stopped, extra_fields, total_reorder)
 
         # Do runge-kutta step, check to change stopping state, and change step size
         # if step is performed
@@ -330,47 +400,17 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     if verbose > 0:
         print(f"Took {iter_count} iterations")
 
-    # We need to reverse of the accumulated reordering
+    # Sanity Check to ensure order is preserved
     total_reorder_rev = np.argsort(total_reorder)
-
     assert cp.all(total_reorder[total_reorder_rev] == cp.arange(npart, dtype=int))
 
     # Always save last step of each, even if not recording full history
-    gamma, W = _calc_gamma_W(B, y)
-    hist_t.append(t[total_reorder_rev].get())
-    hist_y.append(y[total_reorder_rev].get())
-    hist_B.append(B[total_reorder_rev].get())
-    hist_W.append(W[total_reorder_rev].get())
-    hist_h.append(h[total_reorder_rev].get())
-    hist_stopped.append(stopped[total_reorder_rev].get())
+    hist_buff.append(t, y, B, h, stopped, extra_fields, total_reorder)
 
-    # Prepare history object and return instance of ParticleHistory
-    hist_t = undim_time(np.array(hist_t))
-    hist_B = undim_magnetic_field(np.array(hist_B), particle_state.mass, particle_state.charge)
-    hist_W = undim_energy(np.array(hist_W), particle_state.mass)
-    hist_h = undim_time(np.array(hist_h))
-    hist_stopped = np.array(hist_stopped)
-    hist_y = np.array(hist_y)
-    hist_pos_x = undim_space(hist_y[:, :, 0])
-    hist_pos_y = undim_space(hist_y[:, :, 1])
-    hist_pos_z = undim_space(hist_y[:, :, 2])
-    hist_ppar = undim_momentum(hist_y[:, :, 3], particle_state.mass)
-    hist_M = undim_magnetic_moment(hist_y[:, :, 4], particle_state.charge)
+    # Convert history buffer to ParticleHistory
+    hist = hist_buff.to_particle_history(particle_state)
 
-    return ParticleHistory(
-        t=hist_t,
-        x=hist_pos_x,
-        y=hist_pos_y,
-        z=hist_pos_z,
-        ppar=hist_ppar,
-        M=hist_M,
-        B=hist_B,
-        W=hist_W,
-        h=hist_h,
-        stopped=hist_stopped,
-        mass=particle_state.mass,
-        charge=particle_state.charge,
-    )
+    return hist
 
 
 def _rhs(t, y, field_model_loader, stopped_cutoff):
@@ -395,6 +435,9 @@ def _rhs(t, y, field_model_loader, stopped_cutoff):
       dimensionalized. Filled up to `stopped_cutoff`.
     B: cupy array (nparticles,)
       Value of B at the particle positions, filled up to
+      `stopped_cutoff`.
+    extra_fields: cupy array (NEXTRA, nparticles)
+      Values of extra interpolated parameters at the particle positions, filled up to
       `stopped_cutoff`.
     """
     # Get B, E Values and partials
@@ -439,7 +482,7 @@ def _rhs(t, y, field_model_loader, stopped_cutoff):
         r_inner,
     )
 
-    return dydt, interp_result.B, paused
+    return dydt, interp_result.B, interp_result.extra_fields, paused
 
 
 def _do_step(
