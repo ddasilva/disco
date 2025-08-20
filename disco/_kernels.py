@@ -389,24 +389,24 @@ def multi_interp_kernel(
         )
 
         # ...interpolate extra fields...
-        for ifield in range(extra_fields_vec.shape[0]):
-            extra_fields[ifield, idx] = (
-                extra_fields_vec[ifield, iiii] * ww01
-                + extra_fields_vec[ifield, jiii] * ww02
-                + extra_fields_vec[ifield, jjii] * ww03
-                + extra_fields_vec[ifield, ijii] * ww04
-                + extra_fields_vec[ifield, iiji] * ww05
-                + extra_fields_vec[ifield, jiji] * ww06
-                + extra_fields_vec[ifield, jjji] * ww07
-                + extra_fields_vec[ifield, ijji] * ww08
-                + extra_fields_vec[ifield, iiij] * ww09
-                + extra_fields_vec[ifield, jiij] * ww10
-                + extra_fields_vec[ifield, jjij] * ww11
-                + extra_fields_vec[ifield, ijij] * ww12
-                + extra_fields_vec[ifield, iijj] * ww13
-                + extra_fields_vec[ifield, jijj] * ww14
-                + extra_fields_vec[ifield, jjjj] * ww15
-                + extra_fields_vec[ifield, ijjj] * ww16
+        for ifield in range(extra_fields_vec.shape[1]):
+            extra_fields[idx, ifield] = (
+                extra_fields_vec[iiii, ifield] * ww01
+                + extra_fields_vec[jiii, ifield] * ww02
+                + extra_fields_vec[jjii, ifield] * ww03
+                + extra_fields_vec[ijii, ifield] * ww04
+                + extra_fields_vec[iiji, ifield] * ww05
+                + extra_fields_vec[jiji, ifield] * ww06
+                + extra_fields_vec[jjji, ifield] * ww07
+                + extra_fields_vec[ijji, ifield] * ww08
+                + extra_fields_vec[iiij, ifield] * ww09
+                + extra_fields_vec[jiij, ifield] * ww10
+                + extra_fields_vec[jjij, ifield] * ww11
+                + extra_fields_vec[ijij, ifield] * ww12
+                + extra_fields_vec[iijj, ifield] * ww13
+                + extra_fields_vec[jijj, ifield] * ww14
+                + extra_fields_vec[jjjj, ifield] * ww15
+                + extra_fields_vec[ijjj, ifield] * ww16
             )
 
         # ...calculate btot and field derivatives to 1st order...

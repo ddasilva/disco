@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import math
 from typing import Dict
 
+from astropy import units
 import cupy as cp
 import h5py
 import numpy as np
@@ -67,6 +68,11 @@ class FieldModel:
         self.extra_fields = extra_fields if extra_fields is not None else {}
         self.axes = axes
         self.dimensionalized = False
+
+        # TODO(ddasilva): add test for this
+        for key, value in self.extra_fields.items():
+            if isinstance(value, units.Quantity):
+                raise ValueError("Extra field values must not have units. ")
 
     def duplicate_in_time(self, time_axis=[-1, 1] * units.year):
         """Duplicate the `FieldModel` in time, to support tracing in a single time step.
@@ -355,10 +361,10 @@ class DimensionalizedFieldModel:
         self._Exvec = self.Ex.reshape(nttl, order="F")
         self._Eyvec = self.Ey.reshape(nttl, order="F")
         self._Ezvec = self.Ez.reshape(nttl, order="F")
-        self._extra_fields_vec = cp.zeros((len(self.extra_fields), arr_size))
+        self._extra_fields_vec = cp.zeros((nttl, len(self.extra_fields)))
 
         for i, value in enumerate(self.extra_fields.values()):
-            self._extra_fields_vec[i, :] = value.reshape(nttl, order="F")
+            self._extra_fields_vec[:, i] = value.reshape(nttl, order="F")
 
         self._Bx_out = cp.zeros(arr_size)
         self._By_out = cp.zeros(arr_size)
@@ -379,7 +385,7 @@ class DimensionalizedFieldModel:
         self._dBdx_out = cp.zeros(arr_size)
         self._dBdy_out = cp.zeros(arr_size)
         self._dBdz_out = cp.zeros(arr_size)
-        self._extra_fields_out = cp.zeros((len(self.extra_fields), arr_size))
+        self._extra_fields_out = cp.zeros((arr_size, len(self.extra_fields)))
 
         # Save state variables
         self._memory_initialized = True

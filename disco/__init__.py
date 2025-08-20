@@ -177,7 +177,7 @@ class HistoryBuffer:
         if extra_fields.size > 0:
             self.extra_fields.append(extra_fields[total_reorder_rev].get())
 
-    def to_particle_history(self, particle_state):
+    def to_particle_history(self, particle_state, field_model):
         """Convert the accumulated history to a `ParticleHistory` instance.
 
         Parameters
@@ -196,12 +196,22 @@ class HistoryBuffer:
         hist_W = undim_energy(np.array(self.W), particle_state.mass)
         hist_h = undim_time(np.array(self.h))
         hist_stopped = np.array(self.stopped)
+        hist_raw_extra_fields = np.array(self.extra_fields)
         hist_y = np.array(self.y)
         hist_pos_x = undim_space(hist_y[:, :, 0])
         hist_pos_y = undim_space(hist_y[:, :, 1])
         hist_pos_z = undim_space(hist_y[:, :, 2])
         hist_ppar = undim_momentum(hist_y[:, :, 3], particle_state.mass)
         hist_M = undim_magnetic_moment(hist_y[:, :, 4], particle_state.charge)
+
+        if len(field_model.extra_fields) > 0:
+            hist_extra_fields = {}
+            key_names = list(field_model.extra_fields.keys())
+
+            for i, key in enumerate(key_names):
+                hist_extra_fields[key] = hist_raw_extra_fields[:, :, i]
+        else:
+            hist_extra_fields = None
 
         return ParticleHistory(
             t=hist_t,
@@ -216,6 +226,7 @@ class HistoryBuffer:
             stopped=hist_stopped,
             mass=particle_state.mass,
             charge=particle_state.charge,
+            extra_fields=hist_extra_fields,
         )
 
 
@@ -408,7 +419,7 @@ def trace_trajectory(config, particle_state, field_model, verbose=1):
     hist_buff.append(t, y, B, h, stopped, extra_fields, total_reorder)
 
     # Convert history buffer to ParticleHistory
-    hist = hist_buff.to_particle_history(particle_state)
+    hist = hist_buff.to_particle_history(particle_state, field_model)
 
     return hist
 

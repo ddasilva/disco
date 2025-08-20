@@ -56,6 +56,9 @@ class ParticleHistory:
       Adapative step size used in the integration at each step.
     stopped : array of bool
       Boolean array indicating whether the particle stopped at each step.
+    extra_fields : dict
+      Dictionary of additional fields computed during the trajectory tracing.
+      Keys are field names and values are arrays with the same shape as the other arrays.
     mass : scalar with units
       Mass of the particles (constant).
     charge : scalar with units
@@ -81,7 +84,7 @@ class ParticleHistory:
     >>> plt.savefig('myplot.png')
     """
 
-    def __init__(self, t, x, y, z, ppar, M, B, W, h, stopped, mass, charge):
+    def __init__(self, t, x, y, z, ppar, M, B, W, h, stopped, mass, charge, extra_fields=None):
         self.t = t.to(TIME_UNITS)
         self.x = x.to(SPACE_UNITS)
         self.y = y.to(SPACE_UNITS)
@@ -92,8 +95,16 @@ class ParticleHistory:
         self.W = W.to(ENERGY_UNITS)
         self.h = h.to(TIME_UNITS)
         self.stopped = stopped.astype(bool)
+
+        # Ensure mass and charge are scalars with units
         self.mass = mass.to(MASS_UNITS)
         self.charge = charge.to(CHARGE_UNITS)
+
+        # If extra_fields is None, initialize as an empty dictionary
+        if extra_fields is None:
+            self.extra_fields = {}
+        else:
+            self.extra_fields = extra_fields
 
     def save(self, hdf_path):
         """Save particle history to an HDF5 file.
@@ -108,6 +119,7 @@ class ParticleHistory:
         See `ParticleHistory.load()`: to load particle history from an HDF5 file.
         """
         with h5py.File(hdf_path, "w") as hdf:
+            # Set main fields
             hdf["t"] = self.t.to_value(TIME_UNITS)
             hdf["x"] = self.x.to_value(SPACE_UNITS)
             hdf["y"] = self.y.to_value(SPACE_UNITS)
@@ -121,6 +133,13 @@ class ParticleHistory:
             hdf["mass"] = self.mass.to_value(MASS_UNITS)
             hdf["charge"] = self.charge.to_value(CHARGE_UNITS)
 
+            # Set extra fields if they exist
+            if self.extra_fields:
+                extra_fields_group = hdf.create_group("extra_fields")
+                for key, value in self.extra_fields.items():
+                    extra_fields_group[key] = value
+
+            # Set attributes for units
             hdf["t"].attrs["UNITS"] = TIME_UNITS.to_string()
             hdf["x"].attrs["UNITS"] = SPACE_UNITS.to_string()
             hdf["y"].attrs["UNITS"] = SPACE_UNITS.to_string()
@@ -164,7 +183,15 @@ class ParticleHistory:
             mass = hdf["mass"][()] * MASS_UNITS
             charge = hdf["charge"][()] * CHARGE_UNITS
 
-        return cls(t, x, y, z, ppar, M, B, W, h, stopped, mass, charge)
+            if "extra_fields" in hdf.keys():
+                extra_fields = {}
+
+                for key, value in hdf["extra_fields"].items():
+                    extra_fields[key] = value[:]
+            else:
+                extra_fields = None
+
+        return cls(t, x, y, z, ppar, M, B, W, h, stopped, mass, charge, extra_fields=extra_fields)
 
     def _plot_trajectory(
         self,

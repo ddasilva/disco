@@ -9,10 +9,10 @@ from disco import TraceConfig, Axes, FieldModel, ParticleState, trace_trajectory
 from disco.tests.integration.integration_test_utils import setup_particle_state
 
 
-def _setup_field_model(charge=-1, backwards_time=False):
+def _setup_field_model(
+    grid_spacing=0.5, charge=-1, backwards_time=False, include_extra_fields=False
+):
     # Setup axes and grid
-    grid_spacing = 0.5
-
     x_axis = np.arange(-10, 10, grid_spacing) * constants.R_earth
     y_axis = np.arange(-10, 10, grid_spacing) * constants.R_earth
     z_axis = np.arange(-5, 5, grid_spacing) * constants.R_earth
@@ -31,7 +31,15 @@ def _setup_field_model(charge=-1, backwards_time=False):
     Ey = np.zeros(Bx.shape) * units.mV / units.m
     Ez = np.zeros(Bx.shape) * units.mV / units.m
 
-    field_model = FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes).duplicate_in_time()
+    if include_extra_fields:
+        extra_fields = {
+            "r": np.sqrt(x_grid**2 + y_grid**2 + z_grid**2).to(constants.R_earth).value,
+        }
+    else:
+        extra_fields = None
+
+    field_model = FieldModel(Bx, By, Bz, Ex, Ey, Ez, axes, extra_fields=extra_fields)
+    field_model = field_model.duplicate_in_time()
 
     return field_model
 
@@ -70,6 +78,38 @@ def test_bouncing_basic():
     assert np.all(np.abs(B - 120.45078467) < threshold)
     assert np.all(np.abs(W - 0.17225467) < threshold)
     assert np.all(np.abs(h - 0.00718319) < threshold)
+
+
+def test_bouncing_extra_fields():
+    """Tests bouncing a particle in the outer radiation belt and interpolating
+    an extra scalar field (radius) during integration.
+    """
+    config = TraceConfig(
+        t_final=1 * units.s,
+        h_initial=5 * units.ms,
+        rtol=1e-2,
+        output_freq=None,
+    )
+
+    # We need a fine grid spacing here to ensure the extra field is calculated correctly
+    field_model = _setup_field_model(grid_spacing=0.05, include_extra_fields=True)
+    particle_state = setup_particle_state(pos_x=6.6)
+
+    hist = trace_trajectory(config, particle_state, field_model, verbose=0)
+    threshold = 1e-1
+
+    # Check shape
+    assert hist.x.shape == hist.extra_fields["r"].shape
+
+    # Check values
+    hist_r_calc = np.sqrt(
+        hist.x.to(constants.R_earth).value ** 2
+        + hist.y.to(constants.R_earth).value ** 2
+        + hist.z.to(constants.R_earth).value ** 2
+    )
+    hist_r_extra = hist.extra_fields["r"]
+
+    assert np.all(np.abs(hist_r_calc - hist_r_extra) < threshold)
 
 
 def setup_plotting(output_freq):
