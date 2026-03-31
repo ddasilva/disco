@@ -22,8 +22,8 @@ Coordinate System
 ------------------
 DISCO works in the SM coordinate system, which is a geocentric solar magnetic coordinate system. In this system, the X-axis points from the Earth towards the Sun, the Z-axis points towards the north magnetic pole, and the Y-axis completes the right-handed coordinate system. 
 
-Interpolation Algorithm
------------------------
+Resampling Algorithm
+--------------------
 The regridding process uses k-NN averaging based on a k-d tree. To interpolate at each point, we use 16 neighbors, and average the neighboring values using radial basis functions with a Gaussian kernel. The kernel width is determined by the average distance to the neighbors, ensuring that the interpolation is smooth and accurate. As much as possible, the regridding is done on the GPU.
 
 Internal versus External Field
