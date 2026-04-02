@@ -16,7 +16,7 @@ from disco._dimensionalization import (
     dim_magnetic_moment,
 )
 from disco._field_model import FieldModel
-from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
+from disco._field_model_loader import FieldModelLoader, DynamicFieldModelLoader, StaticFieldModelLoader
 from disco._particle_history import ParticleHistory, ParticleHistoryBuffer
 from disco._kernels import do_step_kernel, rhs_kernel
 from disco.constants import BLOCK_SIZE, NSTATE, RK45Coeffs
@@ -27,7 +27,7 @@ from astropy import units
 __all__ = [
     "Axes",
     "FieldModel",
-    "LazyFieldModelLoader",
+    "DynamicFieldModelLoader",
     "ParticleHistory",
     "ParticleState",
     "TraceConfig",

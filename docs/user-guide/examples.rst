@@ -47,7 +47,7 @@ Currently, loading output from the `Space Weather Modeling Framework (SWMF) <htt
    
    dataset = SwmfOutFieldModelDataset('swmf_run/*.out')
 
-   field_model_loader = disco.LazyFieldModelLoader(
+   field_model_loader = disco.DynamicFieldModelLoader(
       dataset, config, particle_state.mass, particle_state.charge
    )
 
@@ -230,7 +230,7 @@ For ambitious users who want to support dynamic loading of non-built-in magnetic
 * `get_time_axis(self)`: returns an array with units of time, of size equal to the number of timesteps, that describes the timestamps of each index
 
 
-When that subclass is implemented and working, it can be used with `disco.LazyFieldModelLoader`, which will call `__getitem__` on demand as new timesteps are needed. This instance of `disco.LazyFieldModelLoader` can be passed to `disco.trace_trajectory` to cause the trace to use your output.
+When that subclass is implemented and working, it can be used with `disco.DynamicFieldModelLoader`, which will call `__getitem__` on demand as new timesteps are needed. This instance of `disco.DynamicFieldModelLoader` can be passed to `disco.trace_trajectory` to cause the trace to use your output.
 
 .. code-block:: python
 

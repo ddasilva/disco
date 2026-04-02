@@ -47,7 +47,7 @@ Brief Tour
    )
    dataset = SwmfOutFieldModelDataset('swmf_run/*.out')
 
-   field_model_loader = disco.LazyFieldModelLoader(
+   field_model_loader = disco.DynamicFieldModelLoader(
       dataset, config, mass, charge
    )
 

@@ -42,8 +42,8 @@ class FieldModelLoader:
         raise NotImplementedError()
 
 
-class LazyFieldModelLoader(FieldModelLoader):
-    """Wraps a FieldModelDataset to provide lazy loading of field models.
+class DynamicFieldModelLoader(FieldModelLoader):
+    """Wraps a FieldModelDataset to provide delayed loading of field models.
 
     Tis class pauses particles if the required time slice
     of field data is not loaded. This is useful for large datasets

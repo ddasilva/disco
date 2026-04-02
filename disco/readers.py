@@ -13,7 +13,7 @@ from disco import Axes
 from disco.constants import DEFAULT_B0
 from disco._regrid import regrid_pointcloud
 from disco._field_model import FieldModel
-from disco._field_model_loader import FieldModelLoader, LazyFieldModelLoader, StaticFieldModelLoader
+from disco._field_model_loader import FieldModelLoader, DynamicFieldModelLoader, StaticFieldModelLoader
 
 
 __all__ = [
@@ -23,7 +23,7 @@ __all__ = [
 
 
 class FieldModelDataset:
-    """This is an abstract base class to provide lazy loading for simulation
+    """This is an abstract base class to provide delayed loading for simulation
     output.
 
     .. automethod:: __getitem__
@@ -31,7 +31,7 @@ class FieldModelDataset:
 
     Notes
     -----
-    See also: disco.LazyFieldModelLoader
+    See also: disco.DynamicFieldModelLoader
     """
 
     def __init__(self):
@@ -70,7 +70,7 @@ class FieldModelDataset:
 
 
 class SwmfOutFieldModelDataset(FieldModelDataset):
-    """Subclass of `FieldModelDataset` for lazy reading of SWMF Output in .out Format.
+    """Subclass of `FieldModelDataset` for delayed reading of SWMF Output in .out Format.
 
     Examples
     --------
