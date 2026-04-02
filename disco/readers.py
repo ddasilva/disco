@@ -402,7 +402,9 @@ class SwmfOutFieldModelDataset(FieldModelDataset):
             extra_fields["ux"] = out_file["ux"][:].squeeze()  # km/s
             extra_fields["uy"] = out_file["uy"][:].squeeze()  # km/s
             extra_fields["uz"] = out_file["uz"][:].squeeze()  # km/s
-
+            extra_fields["Bx"] = Bx.to(units.nT).value  # nT
+            extra_fields["By"] = By.to(units.nT).value  # nT
+            extra_fields["Bz"] = Bz.to(units.nT).value  # nT
             point_cloud_fields.update(extra_fields)
 
         # Regrid point cloud to a regular grid
