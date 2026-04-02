@@ -4,7 +4,12 @@
 Guiding Center Methodology
 #########
 
-DISCO traces particle trajectories using the guiding center approximation, which is a method for simulating the motion of charged particles in a magnetic field. This approximation simplifies the equations of motion by averaging over the fast gyromotion of the particles around magnetic field lines, allowing for larger time steps and more efficient simulations.   
+DISCO traces particle trajectories using the guiding center approximation, which is a method for simulating the motion of charged particles in a magnetic field. This approximation simplifies the equations of motion by averaging over the fast gyromotion of the particles around magnetic field lines, allowing for larger time steps and more efficient simulations.  
+
+
+.. image:: ../_static/Charged-particle-drifts.svg
+   :align: right
+   :height: 400px
 
 It is important to note that the guiding center approximation is valid when the particle's gyroradius is small compared to the characteristic length scales of the magnetic field, and when the particle's velocity is not too high. In cases where these conditions are not met, the full equations of motion may need to be solved with another tool for accurate results.
 
