@@ -4,13 +4,22 @@
 Guiding Center Methodology
 #########
 
-.. image:: ../_static/Charged-particle-drifts.svg
+DISCO traces particle trajectories using the guiding center approximation, which is a method for simulating the motion of charged particles in a magnetic field. This approximation simplifies the equations of motion by averaging over the fast gyromotion of the particles around magnetic field lines, allowing for larger time steps and more efficient simulations.  
+
+.. contents::
+   :depth: 3
+
+Considerations
+==============
+
+.. image:: ../_static/Charged-particle-drifts.jpg
    :align: right
    :height: 400px
 
-DISCO traces particle trajectories using the guiding center approximation, which is a method for simulating the motion of charged particles in a magnetic field. This approximation simplifies the equations of motion by averaging over the fast gyromotion of the particles around magnetic field lines, allowing for larger time steps and more efficient simulations.  
-
 It is important to note that the guiding center approximation is valid when the particle's gyroradius is small compared to the characteristic length scales of the magnetic field, and when the particle's velocity is not too high. In cases where these conditions are not met, the full equations of motion may need to be solved with another tool for accurate results.
+
+Equations
+=========
 
 The guiding center equations of motion are derived from the Lorentz force and can be expressed as follows ( `Brizard & Chan, 1999 <https://doi.org/10.1063/1.873742>`_, `Elkington et al., 2002 <https://doi.org/10.1016/S1364-6826(02)00018-4>`_):
 
@@ -34,6 +43,10 @@ Where
 - :math:`q` is the particle charge
 - :math:`m` is the particle mass
 - :math:`\gamma` is the relativistic factor
+
+
+Dimensionalization
+==================
 
 Finally, we note that we use a dimensionalization scheme when solving the equations for efficiency. The dimensionalization scheme is:
 
