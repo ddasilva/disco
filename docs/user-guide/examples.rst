@@ -238,6 +238,6 @@ When that subclass is implemented and working, it can be used with `disco.Dynami
 		
     dataset = MyDataset("some_directory/*.cdf")
     
-    field_model_loader = disco.LazyFieldModelLoader(
+    field_model_loader = disco.DynamicFieldModelLoader(
         dataset, config, particle_state.mass, particle_state.charge
     )
