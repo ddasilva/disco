@@ -10,7 +10,7 @@ By default regridding is done on the fly as particles reach new temporal slices 
 
 Target Grid
 ------------
-The target grid is an OpenGGCM overview grid, with about 2.95M cells. This is a rectilinear grid with higher density around the magnetopause and inner magnetosphere, and lower density in the solar wind and tail region. This grid is based on the 11.8M grid obtained by the CCMC, but has been downsampled for the particle tracing task.
+The target grid is an OpenGGCM overview grid, with about 1.48M cells. This is a rectilinear grid with higher density around the magnetopause and inner magnetosphere, and lower density in the solar wind and tail region. This grid is based on the 11.8M grid obtained by the CCMC, but has been downsampled for the particle tracing task.
 
 .. image:: ../_static/disco_grid_xz.png
    :align: center
